@@ -3,6 +3,7 @@ package bdcache
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,8 +45,8 @@ type entry[K comparable, V any] struct {
 	key     K
 	value   V
 	element *list.Element
-	freq    int  // Access frequency counter
-	inSmall bool // True if in Small queue, false if in Main
+	freq    atomic.Int32 // Access frequency counter (atomic for lock-free reads)
+	inSmall bool         // True if in Small queue, false if in Main
 }
 
 // newS3FIFO creates a new S3-FIFO cache with the given capacity.
@@ -77,26 +78,31 @@ func newS3FIFO[K comparable, V any](capacity int) *s3fifo[K, V] {
 // get retrieves a value from the cache.
 // On hit, increments frequency counter (used during eviction).
 func (c *s3fifo[K, V]) get(key K) (V, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	c.mu.RLock()
 	ent, ok := c.items[key]
 	if !ok {
+		c.mu.RUnlock()
 		var zero V
 		return zero, false
 	}
 
-	// Check expiration
+	// Fast path: check expiration while holding read lock
+	// This is safe because we're only reading ent.expiry
 	if !ent.expiry.IsZero() && time.Now().After(ent.expiry) {
+		c.mu.RUnlock()
 		var zero V
 		return zero, false
 	}
+
+	val := ent.value
+	c.mu.RUnlock()
 
 	// S3-FIFO: Increment frequency on access (lazy promotion)
 	// Items are promoted during eviction, not on access
-	ent.freq++
+	// Use atomic increment to avoid lock contention on hot path
+	ent.freq.Add(1)
 
-	return ent.value, true
+	return val, true
 }
 
 // set adds or updates a value in the cache.
@@ -108,7 +114,7 @@ func (c *s3fifo[K, V]) set(key K, value V, expiry time.Time) {
 	if ent, ok := c.items[key]; ok {
 		ent.value = value
 		ent.expiry = expiry
-		ent.freq++
+		ent.freq.Add(1)
 		return
 	}
 
@@ -126,9 +132,9 @@ func (c *s3fifo[K, V]) set(key K, value V, expiry time.Time) {
 		key:     key,
 		value:   value,
 		expiry:  expiry,
-		freq:    0,
 		inSmall: !inGhost,
 	}
+	// freq starts at 0 (atomic.Int32 zero value)
 
 	// S3-FIFO: Make room if at total capacity
 	for len(c.items) >= c.capacity {
@@ -193,7 +199,7 @@ func (c *s3fifo[K, V]) evictFromSmall() {
 		c.small.Remove(elem)
 
 		// One-hit wonder: never accessed since insertion
-		if ent.freq == 0 {
+		if ent.freq.Load() == 0 {
 			// Evict and track in ghost queue
 			delete(c.items, ent.key)
 			c.addToGhost(ent.key)
@@ -201,7 +207,7 @@ func (c *s3fifo[K, V]) evictFromSmall() {
 		}
 
 		// Hot item: promote to Main queue
-		ent.freq = 0 // Reset frequency
+		ent.freq.Store(0) // Reset frequency
 		ent.inSmall = false
 		ent.element = c.main.PushBack(ent)
 	}
@@ -223,7 +229,7 @@ func (c *s3fifo[K, V]) evictFromMain() {
 		c.main.Remove(elem)
 
 		// Not accessed recently: evict
-		if ent.freq == 0 {
+		if ent.freq.Load() == 0 {
 			delete(c.items, ent.key)
 			// Note: Don't add to ghost - item was already added when evicted from Small
 			// Only Small queue evictions go to ghost
@@ -232,7 +238,7 @@ func (c *s3fifo[K, V]) evictFromMain() {
 
 		// Accessed recently: lazy promotion (FIFO-Reinsertion / Second Chance)
 		// Move to back of Main queue and decrement frequency
-		ent.freq--
+		ent.freq.Add(-1)
 		ent.element = c.main.PushBack(ent)
 	}
 }

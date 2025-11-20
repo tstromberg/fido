@@ -49,10 +49,10 @@ Benchmarks on MacBook Pro M4 Max comparing memory-only Get operations:
 
 | Library | Algorithm | ns/op | Allocations | Persistence |
 |---------|-----------|-------|-------------|-------------|
-| **bdcache** | S3-FIFO | **12.95** | **0 allocs** | ✅ Auto (Local files + GCP Datastore) |
-| golang-lru | LRU | 13.63 | 0 allocs | ❌ None |
-| otter | S3-FIFO | 15.73 | 0 allocs | ⚠️ Manual (Save/Load entire cache) |
-| ristretto | TinyLFU | 30.43 | 0 allocs | ❌ None |
+| **bdcache** | S3-FIFO | **8.61** | **0 allocs** | ✅ Auto (Local files + GCP Datastore) |
+| golang-lru | LRU | 13.02 | 0 allocs | ❌ None |
+| otter | S3-FIFO | 14.58 | 0 allocs | ⚠️ Manual (Save/Load entire cache) |
+| ristretto | TinyLFU | 30.53 | 0 allocs | ❌ None |
 
 > ⚠️ **Benchmark Disclaimer**: These benchmarks are highly cherrypicked to show S3-FIFO's advantages. Different cache implementations excel at different workloads - LRU may outperform S3-FIFO in some scenarios, while TinyLFU shines in others. Performance varies based on access patterns, working set size, and hardware.
 >
