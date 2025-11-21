@@ -1,4 +1,4 @@
-package bdcache
+package datastore
 
 import (
 	"context"
@@ -21,9 +21,9 @@ func TestDatastorePersist_StoreLoad(t *testing.T) {
 	skipIfNoDatastore(t)
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, int](ctx, "test-cache")
+	dp, err := New[string, int](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -61,9 +61,9 @@ func TestDatastorePersist_LoadMissing(t *testing.T) {
 	skipIfNoDatastore(t)
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, int](ctx, "test-cache")
+	dp, err := New[string, int](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -85,9 +85,9 @@ func TestDatastorePersist_TTL(t *testing.T) {
 	skipIfNoDatastore(t)
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, string](ctx, "test-cache")
+	dp, err := New[string, string](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -115,9 +115,9 @@ func TestDatastorePersist_Delete(t *testing.T) {
 	skipIfNoDatastore(t)
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, int](ctx, "test-cache")
+	dp, err := New[string, int](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -153,9 +153,9 @@ func TestDatastorePersist_Update(t *testing.T) {
 	skipIfNoDatastore(t)
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, string](ctx, "test-cache")
+	dp, err := New[string, string](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -201,9 +201,9 @@ func TestDatastorePersist_ComplexValue(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	dp, err := newDatastorePersist[string, User](ctx, "test-cache")
+	dp, err := New[string, User](ctx, "test-cache")
 	if err != nil {
-		t.Fatalf("newDatastorePersist: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer func() {
 		if err := dp.Close(); err != nil {
@@ -244,9 +244,9 @@ func TestNewDatastorePersist_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to create with invalid project (will fail but tests the path)
-	_, err := newDatastorePersist[string, int](ctx, "test-invalid-project")
+	_, err := New[string, int](ctx, "test-invalid-project")
 	// Error is expected - we're testing the code path
 	if err == nil {
-		t.Log("newDatastorePersist succeeded unexpectedly - might have credentials")
+		t.Log("New succeeded unexpectedly - might have credentials")
 	}
 }

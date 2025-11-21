@@ -1,4 +1,4 @@
-package bdcache
+package datastore
 
 import (
 	"context"
@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codeGROOVE-dev/ds9/pkg/datastore"
+	ds "github.com/codeGROOVE-dev/ds9/pkg/datastore"
 )
 
 // newMockDatastorePersist creates a datastore persistence layer with mock client.
-func newMockDatastorePersist[K comparable, V any](t *testing.T) (dp *datastorePersist[K, V], cleanup func()) {
+func newMockDatastorePersist[K comparable, V any](t *testing.T) (dp *persister[K, V], cleanup func()) {
 	t.Helper()
-	client, cleanup := datastore.NewMockClient(t)
+	client, cleanup := ds.NewMockClient(t)
 
-	return &datastorePersist[K, V]{
+	return &persister[K, V]{
 		client: client,
 		kind:   "CacheEntry",
 	}, cleanup
@@ -210,9 +210,9 @@ func TestDatastorePersist_Mock_LoadAll(t *testing.T) {
 		t.Fatalf("Store expired: %v", err)
 	}
 
-	// LoadAll - note: this doesn't return entries (by design, see comment in LoadAll)
+	// LoadRecent(ctx, 0) - note: this doesn't return entries (by design, see comment in LoadRecent(ctx, 0))
 	// but it should clean up expired entries
-	entryCh, errCh := dp.LoadAll(ctx)
+	entryCh, errCh := dp.LoadRecent(ctx, 0)
 
 	// Consume channels
 	for range entryCh {
@@ -223,7 +223,7 @@ func TestDatastorePersist_Mock_LoadAll(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Fatalf("LoadAll error: %v", err)
+			t.Fatalf("LoadRecent(ctx, 0) error: %v", err)
 		}
 	default:
 	}
@@ -235,7 +235,7 @@ func TestDatastorePersist_Mock_LoadAll(t *testing.T) {
 			t.Fatalf("Load %s: %v", k, err)
 		}
 		if !found {
-			t.Errorf("%s not found after LoadAll", k)
+			t.Errorf("%s not found after LoadRecent(ctx, 0)", k)
 		}
 		if val != v {
 			t.Errorf("Load %s = %d; want %d", k, val, v)
@@ -256,9 +256,9 @@ func TestDatastorePersist_Mock_LoadAllContextCancellation(t *testing.T) {
 		}
 	}
 
-	// Cancel context during LoadAll
+	// Cancel context during LoadRecent with limit 0
 	ctx, cancel := context.WithCancel(context.Background())
-	entryCh, errCh := dp.LoadAll(ctx)
+	entryCh, errCh := dp.LoadRecent(ctx, 0)
 
 	// Cancel immediately
 	cancel()
@@ -313,57 +313,6 @@ func TestDatastorePersist_Mock_WithTTL(t *testing.T) {
 	}
 	if expiry.Sub(future).Abs() > time.Second {
 		t.Errorf("expiry = %v; want ~%v", expiry, future)
-	}
-}
-
-// TestCache_WithDatastoreMock tests end-to-end cache with mock datastore.
-func TestCache_WithDatastoreMock(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock datastore persistence
-	dp, cleanup := newMockDatastorePersist[string, int](t)
-	defer cleanup()
-
-	// Create cache with mock persistence
-	cache := &Cache[string, int]{
-		memory:  newS3FIFO[string, int](100),
-		persist: dp,
-		opts:    &Options{MemorySize: 100, DefaultTTL: 0},
-	}
-	defer func() {
-		if err := cache.Close(); err != nil {
-			t.Logf("Close error: %v", err)
-		}
-	}()
-
-	// Test operations
-	if err := cache.Set(ctx, "key1", 42, 0); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	val, found, err := cache.Get(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if !found || val != 42 {
-		t.Errorf("Get = %v, %v; want 42, true", val, found)
-	}
-
-	// Delete from memory to test persistence fallback
-	cache.memory.deleteFromMemory("key1")
-
-	// Should load from persistence
-	val, found, err = cache.Get(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Get from persistence: %v", err)
-	}
-	if !found || val != 42 {
-		t.Errorf("Get from persistence = %v, %v; want 42, true", val, found)
-	}
-
-	// Should now be in memory again
-	if _, memFound := cache.memory.getFromMemory("key1"); !memFound {
-		t.Error("key1 should be promoted to memory after persistence load")
 	}
 }
 
@@ -439,17 +388,17 @@ func TestDatastorePersist_Mock_ExpiredInLoadAll(t *testing.T) {
 		t.Fatalf("Store expired: %v", err)
 	}
 
-	// LoadAll should handle expired entries
-	entryCh, errCh := dp.LoadAll(ctx)
+	// LoadRecent(ctx, 0) should handle expired entries
+	entryCh, errCh := dp.LoadRecent(ctx, 0)
 
 	for range entryCh {
-		// Entries channel should be empty (LoadAll doesn't return entries by design)
+		// Entries channel should be empty (LoadRecent(ctx, 0) doesn't return entries by design)
 	}
 
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Fatalf("LoadAll error: %v", err)
+			t.Fatalf("LoadRecent(ctx, 0) error: %v", err)
 		}
 	default:
 	}

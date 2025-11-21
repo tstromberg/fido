@@ -3,6 +3,7 @@ package bdcache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -17,7 +18,9 @@ type Cache[K comparable, V any] struct {
 
 // New creates a new cache with the given options.
 func New[K comparable, V any](ctx context.Context, options ...Option) (*Cache[K, V], error) {
-	opts := defaultOptions()
+	opts := &Options{
+		MemorySize: 10000,
+	}
 	for _, opt := range options {
 		opt(opts)
 	}
@@ -27,47 +30,45 @@ func New[K comparable, V any](ctx context.Context, options ...Option) (*Cache[K,
 		opts:   opts,
 	}
 
-	// Initialize persistence if configured
-	if opts.CacheID != "" {
-		var err error
-		if opts.UseDatastore {
-			cache.persist, err = newDatastorePersist[K, V](ctx, opts.CacheID)
-			if err != nil {
-				slog.Warn("failed to initialize datastore persistence, continuing with memory-only cache",
-					"error", err, "cache_id", opts.CacheID)
-				cache.persist = nil
-			} else {
-				slog.Info("initialized cache with datastore persistence", "cache_id", opts.CacheID)
-			}
-		} else {
-			cache.persist, err = newFilePersist[K, V](opts.CacheID)
-			if err != nil {
-				slog.Warn("failed to initialize file persistence, continuing with memory-only cache",
-					"error", err, "cache_id", opts.CacheID)
-				cache.persist = nil
-			} else {
-				slog.Info("initialized cache with file persistence", "cache_id", opts.CacheID)
-			}
+	// Set persistence from options
+	if opts.Persister != nil {
+		p, ok := opts.Persister.(PersistenceLayer[K, V])
+		if !ok {
+			return nil, errors.New("invalid persister type")
 		}
+		cache.persist = p
+		slog.Info("initialized cache with persistence")
+	}
 
-		// Run background cleanup if configured
-		if cache.persist != nil && opts.CleanupEnabled {
-			go func() {
-				deleted, err := cache.persist.Cleanup(ctx, opts.CleanupMaxAge)
-				if err != nil {
-					slog.Warn("error during cache cleanup", "error", err)
-					return
-				}
-				if deleted > 0 {
-					slog.Info("cache cleanup complete", "deleted", deleted)
-				}
-			}()
-		}
+	// Run background cleanup if configured
+	if cache.persist != nil && opts.CleanupEnabled {
+		//nolint:contextcheck // Background cleanup uses detached context to complete independently
+		go func() {
+			// Create detached context with timeout - cleanup should complete independently
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
 
-		// Warm up cache from persistence if configured
-		if cache.persist != nil && opts.WarmupLimit > 0 {
-			go cache.warmup(ctx)
-		}
+			deleted, err := cache.persist.Cleanup(bgCtx, opts.CleanupMaxAge)
+			if err != nil {
+				slog.Warn("error during cache cleanup", "error", err)
+				return
+			}
+			if deleted > 0 {
+				slog.Info("cache cleanup complete", "deleted", deleted)
+			}
+		}()
+	}
+
+	// Warm up cache from persistence if configured
+	if cache.persist != nil && opts.WarmupLimit > 0 {
+		//nolint:contextcheck // Background warmup uses detached context to complete independently
+		go func() {
+			// Create detached context with timeout - warmup should complete independently
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			cache.warmup(bgCtx)
+		}()
 	}
 
 	return cache, nil
@@ -138,18 +139,24 @@ func (c *Cache[K, V]) Get(ctx context.Context, key K) (V, bool, error) {
 	return val, true, nil
 }
 
+// calculateExpiry returns the expiry time based on TTL and default TTL.
+func (c *Cache[K, V]) calculateExpiry(ttl time.Duration) time.Time {
+	if ttl > 0 {
+		return time.Now().Add(ttl)
+	}
+	if c.opts.DefaultTTL > 0 {
+		return time.Now().Add(c.opts.DefaultTTL)
+	}
+	return time.Time{}
+}
+
 // Set stores a value in the cache with an optional TTL.
 // A zero TTL means no expiration (or uses DefaultTTL if configured).
 // The value is ALWAYS stored in memory, even if persistence fails.
 // Returns an error if the key violates persistence constraints or if persistence fails.
 // Even when an error is returned, the value is cached in memory.
 func (c *Cache[K, V]) Set(ctx context.Context, key K, value V, ttl time.Duration) error {
-	var expiry time.Time
-	if ttl > 0 {
-		expiry = time.Now().Add(ttl)
-	} else if c.opts.DefaultTTL > 0 {
-		expiry = time.Now().Add(c.opts.DefaultTTL)
-	}
+	expiry := c.calculateExpiry(ttl)
 
 	// Validate key early if persistence is enabled
 	if c.persist != nil {
@@ -175,12 +182,7 @@ func (c *Cache[K, V]) Set(ctx context.Context, key K, value V, ttl time.Duration
 // Key validation and in-memory caching happen synchronously. Persistence errors are logged but not returned.
 // Returns an error only for validation failures (e.g., invalid key format).
 func (c *Cache[K, V]) SetAsync(ctx context.Context, key K, value V, ttl time.Duration) error {
-	var expiry time.Time
-	if ttl > 0 {
-		expiry = time.Now().Add(ttl)
-	} else if c.opts.DefaultTTL > 0 {
-		expiry = time.Now().Add(c.opts.DefaultTTL)
-	}
+	expiry := c.calculateExpiry(ttl)
 
 	// Validate key early if persistence is enabled (synchronous)
 	if c.persist != nil {
@@ -195,7 +197,11 @@ func (c *Cache[K, V]) SetAsync(ctx context.Context, key K, value V, ttl time.Dur
 	// Update persistence asynchronously if available
 	if c.persist != nil {
 		go func() {
-			if err := c.persist.Store(ctx, key, value, expiry); err != nil {
+			// Derive context with timeout to prevent hanging
+			storeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+
+			if err := c.persist.Store(storeCtx, key, value, expiry); err != nil {
 				slog.Warn("async persistence store failed", "error", err, "key", key)
 			}
 		}()

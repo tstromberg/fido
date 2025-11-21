@@ -2,6 +2,8 @@ package bdcache
 
 import (
 	"container/list"
+	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -254,6 +256,7 @@ func (c *s3fifo[K, V]) addToGhost(key K) {
 			delete(c.ghostKeys, ghostKey)
 		} else {
 			c.ghost.Remove(elem)
+			slog.Warn("ghost queue contains invalid type", "type", fmt.Sprintf("%T", elem.Value))
 		}
 	}
 

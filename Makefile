@@ -1,7 +1,8 @@
 .PHONY: test lint bench benchmark clean
 
 test:
-	go test -v -race -cover ./...
+	@echo "Running tests in all modules..."
+	@find . -name go.mod -execdir go test -v -race -cover ./... \;
 
 lint:
 	go vet ./...

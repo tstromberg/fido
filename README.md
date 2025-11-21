@@ -8,7 +8,7 @@
 
 <br clear="right">
 
-Fast, persistent Go cache with S3-FIFO eviction - better hit rates than LRU, survives restarts with local files or Google Cloud Datastore, zero allocations.
+Fast, persistent Go cache with S3-FIFO eviction - better hit rates than LRU, survives restarts with pluggable persistence backends, zero allocations.
 
 ## Install
 
@@ -19,30 +19,42 @@ go get github.com/codeGROOVE-dev/bdcache
 ## Use
 
 ```go
+import (
+    "github.com/codeGROOVE-dev/bdcache"
+    "github.com/codeGROOVE-dev/bdcache/persist/localfs"
+)
+
 // Memory only
-cache, err := bdcache.New[string, int](ctx)
-if err != nil {
-    return err
-}
+cache, _ := bdcache.New[string, int](ctx)
 cache.Set(ctx, "answer", 42, 0)           // Synchronous: returns after persistence completes
 cache.SetAsync(ctx, "answer", 42, 0)      // Async: returns immediately, persists in background
-val, found, err := cache.Get(ctx, "answer")
+val, found, _ := cache.Get(ctx, "answer")
 
-// With smart persistence (local files for dev, Google Cloud Datastore for Cloud Run)
-cache, err := bdcache.New[string, User](ctx, bdcache.WithBestStore("myapp"))
+// With local file persistence
+p, _ := localfs.New[string, User]("myapp", "")
+cache, _ := bdcache.New[string, User](ctx,
+    bdcache.WithPersistence(p))
 
-// With Cloud Datastore persistence and automatic cleanup
-cache, err := bdcache.New[string, User](ctx,
-    bdcache.WithCloudDatastore("myapp"),
-    bdcache.WithCleanup(24*time.Hour), // Cleanup entries older than 24h
-)
+// With Valkey/Redis persistence
+p, _ := valkey.New[string, User](ctx, "myapp", "localhost:6379")
+cache, _ := bdcache.New[string, User](ctx,
+    bdcache.WithPersistence(p))
+
+// Cloud Run auto-detection (datastore in Cloud Run, localfs elsewhere)
+p, _ := cloudrun.New[string, User](ctx, "myapp")
+cache, _ := bdcache.New[string, User](ctx,
+    bdcache.WithPersistence(p))
 ```
 
 ## Features
 
 - **S3-FIFO eviction** - Better than LRU ([learn more](https://s3fifo.com/))
 - **Type safe** - Go generics
-- **Persistence** - Local files (gob) or Google Cloud Datastore (JSON)
+- **Pluggable persistence** - Bring your own database or use built-in backends:
+  - [`persist/localfs`](persist/localfs) - Local files (gob encoding, zero dependencies)
+  - [`persist/datastore`](persist/datastore) - Google Cloud Datastore
+  - [`persist/valkey`](persist/valkey) - Valkey/Redis
+  - [`persist/cloudrun`](persist/cloudrun) - Auto-detect Cloud Run
 - **Graceful degradation** - Cache works even if persistence fails
 - **Per-item TTL** - Optional expiration
 
@@ -73,64 +85,13 @@ Benchmarks on MacBook Pro M4 Max comparing memory-only Get operations:
 
 ### Competitive Analysis
 
-Independent benchmark using [scalalang2/go-cache-benchmark](https://github.com/scalalang2/go-cache-benchmark) (500K items, Zipfian distribution):
+Independent benchmark using [scalalang2/go-cache-benchmark](https://github.com/scalalang2/go-cache-benchmark) (500K items, Zipfian distribution) shows bdcache consistently ranks top 1-2 for hit rate across all cache sizes:
 
-**Hit Rate Leadership:**
-- **0.1% cache size**: bdcache **48.12%** vs SIEVE 47.42%, TinyLFU 47.37%, S3-FIFO 47.16%
-- **1% cache size**: bdcache **64.45%** vs TinyLFU 63.94%, Otter 63.60%, S3-FIFO 63.59%, SIEVE 63.33%
-- **10% cache size**: bdcache **80.39%** vs TinyLFU 80.43%, Otter 79.86%, S3-FIFO 79.84%
+- **0.1% cache size**: bdcache **48.12%** vs SIEVE 47.42%, TinyLFU 47.37%
+- **1% cache size**: bdcache **64.45%** vs TinyLFU 63.94%, Otter 63.60%
+- **10% cache size**: bdcache **80.39%** vs TinyLFU 80.43%, Otter 79.86%
 
-Consistently ranks top 1-2 for hit rate across all cache sizes while maintaining competitive throughput (5-12M QPS). The S3-FIFO implementation prioritizes cache efficiency over raw speed, making bdcache ideal when hit rate matters.
-
-### Detailed Benchmarks
-
-Memory-only operations:
-```
-BenchmarkCache_Get_Hit-16      56M ops/sec    17.8 ns/op       0 B/op     0 allocs
-BenchmarkCache_Set-16          56M ops/sec    17.8 ns/op       0 B/op     0 allocs
-```
-
-With file persistence enabled:
-```
-BenchmarkCache_Get_PersistMemoryHit-16    85M ops/sec    11.8 ns/op       0 B/op     0 allocs
-BenchmarkCache_Get_PersistDiskRead-16     73K ops/sec    13.8 µs/op    7921 B/op   178 allocs
-BenchmarkCache_Set_WithPersistence-16      9K ops/sec   112.3 µs/op    2383 B/op    36 allocs
-```
-
-## Cloud Datastore TTL Setup
-
-When using Google Cloud Datastore persistence, configure native TTL policies for automatic expiration:
-
-### One-time Setup (per database)
-
-```bash
-# Enable TTL on the 'expiry' field for CacheEntry kind
-gcloud firestore fields ttls update expiry \
-  --collection-group=CacheEntry \
-  --enable-ttl \
-  --database=YOUR_CACHE_ID
-```
-
-**Important:**
-- Replace `YOUR_CACHE_ID` with your cache ID (passed to `WithCloudDatastore()`)
-- This is a one-time setup per database
-- Datastore automatically deletes expired entries within 24 hours
-- No indexing needed on the expiry field (prevents hotspots)
-
-### Best Practices
-
-1. **Use Native TTL**: Let Datastore handle expiration automatically
-2. **Add Cleanup Fallback**: Use `WithCleanup()` as a safety net:
-   ```go
-   cache, err := bdcache.New[string, User](ctx,
-       bdcache.WithCloudDatastore("myapp"),
-       bdcache.WithCleanup(24*time.Hour), // Safety net for orphaned data
-   )
-   ```
-3. **Set Cleanup MaxAge**: Should match your longest TTL value
-4. **Monitor Costs**: TTL deletions count toward entity delete operations
-
-If native TTL is properly configured, `WithCleanup()` will find no entries (fast no-op).
+See [benchmarks/](benchmarks/) for detailed methodology and running instructions.
 
 ## License
 

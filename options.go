@@ -1,19 +1,17 @@
 package bdcache
 
 import (
-	"os"
 	"time"
 )
 
 // Options configures a Cache instance.
 type Options struct {
-	CacheID        string
+	Persister      any
 	MemorySize     int
 	DefaultTTL     time.Duration
 	WarmupLimit    int
-	UseDatastore   bool
-	CleanupEnabled bool
 	CleanupMaxAge  time.Duration
+	CleanupEnabled bool
 }
 
 // Option is a functional option for configuring a Cache.
@@ -33,31 +31,18 @@ func WithDefaultTTL(d time.Duration) Option {
 	}
 }
 
-// WithLocalStore enables local file persistence using the given cache ID as subdirectory name.
-// Files are stored in os.UserCacheDir()/cacheID.
-func WithLocalStore(cacheID string) Option {
+// WithPersistence sets the persistence layer for the cache.
+// Pass a PersistenceLayer implementation from packages like:
+//   - github.com/codeGROOVE-dev/bdcache/persist/localfs
+//   - github.com/codeGROOVE-dev/bdcache/persist/datastore
+//
+// Example:
+//
+//	p, _ := localfs.New[string, int]("myapp")
+//	cache, _ := bdcache.New[string, int](ctx, bdcache.WithPersistence(p))
+func WithPersistence[K comparable, V any](p PersistenceLayer[K, V]) Option {
 	return func(o *Options) {
-		o.CacheID = cacheID
-		o.UseDatastore = false
-	}
-}
-
-// WithCloudDatastore enables Cloud Datastore persistence using the given cache ID as database ID.
-// An empty project ID will auto-detect the correct project.
-func WithCloudDatastore(cacheID string) Option {
-	return func(o *Options) {
-		o.CacheID = cacheID
-		o.UseDatastore = true
-	}
-}
-
-// WithBestStore automatically selects the best persistence option:
-// - If K_SERVICE environment variable is set (Google Cloud Run/Knative): uses Cloud Datastore
-// - Otherwise: uses local file store.
-func WithBestStore(cacheID string) Option {
-	return func(o *Options) {
-		o.CacheID = cacheID
-		o.UseDatastore = os.Getenv("K_SERVICE") != ""
+		o.Persister = p
 	}
 }
 
@@ -77,12 +62,5 @@ func WithCleanup(maxAge time.Duration) Option {
 	return func(o *Options) {
 		o.CleanupEnabled = true
 		o.CleanupMaxAge = maxAge
-	}
-}
-
-// defaultOptions returns the default configuration (memory-only).
-func defaultOptions() *Options {
-	return &Options{
-		MemorySize: 10000,
 	}
 }
