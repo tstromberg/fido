@@ -477,26 +477,26 @@ func TestS3FIFODetailed(t *testing.T) {
 }
 
 func TestS3FIFO_Flush(t *testing.T) {
-	cache := newS3FIFO[string, int](100)
+	cache := newS3FIFO[string, int](1000)
 
-	// Add some items
-	for i := range 50 {
+	// Add some items (fewer than capacity to avoid eviction)
+	for i := range 100 {
 		cache.setToMemory(fmt.Sprintf("key%d", i), i, time.Time{})
 	}
 
 	// Access some to promote to main queue
-	for i := range 10 {
+	for i := range 20 {
 		cache.getFromMemory(fmt.Sprintf("key%d", i))
 	}
 
-	if cache.memoryLen() != 50 {
-		t.Errorf("cache length = %d; want 50", cache.memoryLen())
+	if cache.memoryLen() != 100 {
+		t.Errorf("cache length = %d; want 100", cache.memoryLen())
 	}
 
 	// Flush
 	removed := cache.flushMemory()
-	if removed != 50 {
-		t.Errorf("flushMemory removed %d items; want 50", removed)
+	if removed != 100 {
+		t.Errorf("flushMemory removed %d items; want 100", removed)
 	}
 
 	// Cache should be empty
@@ -505,7 +505,7 @@ func TestS3FIFO_Flush(t *testing.T) {
 	}
 
 	// All keys should be gone
-	for i := range 50 {
+	for i := range 100 {
 		if _, ok := cache.getFromMemory(fmt.Sprintf("key%d", i)); ok {
 			t.Errorf("key%d should not be found after flush", i)
 		}

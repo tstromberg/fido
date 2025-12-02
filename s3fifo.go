@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const numShards = 16
+const numShards = 32
 
 // s3fifo implements the S3-FIFO eviction algorithm from SOSP'23 paper
 // "FIFO queues are all you need for cache eviction"
