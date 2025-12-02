@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -48,16 +49,22 @@ const (
 	hitRateAlpha    = 0.99
 )
 
+type hitRateResult struct {
+	name  string
+	rates []float64
+}
+
 func runHitRateBenchmark() {
 	fmt.Println()
 	fmt.Println("### Hit Rate (Zipf α=0.99, 1M ops, 1M keyspace)")
 	fmt.Println()
-	fmt.Println("| Cache      | Size=2.5% | Size=5% | Size=10% |")
-	fmt.Println("|------------|-----------|---------|----------|")
+	fmt.Println("| Cache         | Size=1% | Size=2.5% | Size=5% |")
+	fmt.Println("|---------------|---------|-----------|---------|")
 
 	workload := generateWorkload(hitRateWorkload, hitRateKeySpace, hitRateAlpha, 42)
-	// Use sizes >= 25K so freecache's 512KB minimum doesn't give unfair advantage
-	cacheSizes := []int{25000, 50000, 100000}
+	// Use sizes that represent 1%, 2.5%, 5% of 1M keyspace
+	// Note: freecache has 512KB minimum, so smaller sizes may give it unfair advantage
+	cacheSizes := []int{10000, 25000, 50000}
 
 	caches := []struct {
 		name string
@@ -71,13 +78,70 @@ func runHitRateBenchmark() {
 		{"lru", hitRateLRU},
 	}
 
-	for _, c := range caches {
+	results := make([]hitRateResult, len(caches))
+	for i, c := range caches {
 		rates := make([]float64, len(cacheSizes))
-		for i, size := range cacheSizes {
-			rates[i] = c.fn(workload, size)
+		for j, size := range cacheSizes {
+			rates[j] = c.fn(workload, size)
 		}
-		fmt.Printf("| %-10s |   %5.2f%% | %5.2f%% |  %5.2f%% |\n",
-			c.name, rates[0], rates[1], rates[2])
+		results[i] = hitRateResult{name: c.name, rates: rates}
+
+		fmt.Printf("| %s |  %5.2f%% |    %5.2f%% |  %5.2f%% |\n",
+			formatCacheName(c.name), rates[0], rates[1], rates[2])
+	}
+
+	// Print relative performance summary
+	fmt.Println()
+	printHitRateSummary(results)
+}
+
+func printHitRateSummary(results []hitRateResult) {
+	// Calculate average hit rate for each cache across all sizes
+	type avgResult struct {
+		name string
+		avg  float64
+	}
+	avgs := make([]avgResult, len(results))
+
+	for i, r := range results {
+		avg := 0.0
+		for _, rate := range r.rates {
+			avg += rate
+		}
+		avg /= float64(len(r.rates))
+		avgs[i] = avgResult{name: r.name, avg: avg}
+	}
+
+	// Sort by average hit rate (highest first)
+	for i := range len(avgs) - 1 {
+		for j := i + 1; j < len(avgs); j++ {
+			if avgs[j].avg > avgs[i].avg {
+				avgs[i], avgs[j] = avgs[j], avgs[i]
+			}
+		}
+	}
+
+	// Find bdcache position
+	var bdcacheIdx int
+	for i, r := range avgs {
+		if r.name == "bdcache" {
+			bdcacheIdx = i
+			break
+		}
+	}
+
+	bdcacheAvg := avgs[bdcacheIdx].avg
+
+	if bdcacheIdx == 0 {
+		// bdcache is best
+		secondBest := avgs[1]
+		pctBetter := (bdcacheAvg - secondBest.avg) / secondBest.avg * 100
+		fmt.Printf("🏆 Hit rate: +%s better than 2nd best (%s)\n", formatPercent(pctBetter), secondBest.name)
+	} else {
+		// bdcache is not best
+		best := avgs[0]
+		pctWorse := (best.avg - bdcacheAvg) / bdcacheAvg * 100
+		fmt.Printf("📉 Hit rate: -%s worse than best (%s)\n", formatPercent(pctWorse), best.name)
 	}
 }
 
@@ -223,15 +287,95 @@ func runPerformanceBenchmark() {
 	fmt.Println()
 	fmt.Println("### Single-Threaded Latency (sorted by Get)")
 	fmt.Println()
-	fmt.Println("| Cache      | Get ns/op | Get B/op | Get allocs | Set ns/op | Set B/op | Set allocs |")
-	fmt.Println("|------------|-----------|----------|------------|-----------|----------|------------|")
+	fmt.Println("| Cache         | Get ns/op | Get B/op | Get allocs | Set ns/op | Set B/op | Set allocs |")
+	fmt.Println("|---------------|-----------|----------|------------|-----------|----------|------------|")
 
 	for _, r := range results {
-		fmt.Printf("| %-10s | %9.1f | %8d | %10d | %9.1f | %8d | %10d |\n",
-			r.name,
+		fmt.Printf("| %s | %9.1f | %8d | %10d | %9.1f | %8d | %10d |\n",
+			formatCacheName(r.name),
 			r.getNs, r.getB, r.getAlloc,
 			r.setNs, r.setB, r.setAlloc)
 	}
+
+	// Print relative performance summary
+	fmt.Println()
+	printLatencySummary(results, "Get", func(r perfResult) float64 { return r.getNs })
+	printLatencySummary(results, "Set", func(r perfResult) float64 { return r.setNs })
+}
+
+func printLatencySummary(results []perfResult, metric string, getNs func(perfResult) float64) {
+	// Find bdcache and sort by this metric
+	sorted := make([]perfResult, len(results))
+	copy(sorted, results)
+	for i := range len(sorted) - 1 {
+		for j := i + 1; j < len(sorted); j++ {
+			if getNs(sorted[j]) < getNs(sorted[i]) {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	// Find bdcache position and calculate relative performance
+	var bdcacheIdx int
+	for i, r := range sorted {
+		if r.name == "bdcache" {
+			bdcacheIdx = i
+			break
+		}
+	}
+
+	bdcacheNs := getNs(sorted[bdcacheIdx])
+
+	if bdcacheIdx == 0 {
+		// bdcache is fastest
+		secondBest := sorted[1]
+		pctFaster := (getNs(secondBest) - bdcacheNs) / bdcacheNs * 100
+		fmt.Printf("🏆 %s latency: +%s faster than 2nd best (%s)\n", metric, formatPercent(pctFaster), secondBest.name)
+	} else {
+		// bdcache is not fastest
+		best := sorted[0]
+		pctSlower := (bdcacheNs - getNs(best)) / getNs(best) * 100
+		fmt.Printf("📉 %s latency: -%s slower than best (%s)\n", metric, formatPercent(pctSlower), best.name)
+	}
+}
+
+// formatPercent formats a percentage with appropriate precision.
+// Uses 1 decimal place for values < 10%, otherwise no decimals.
+func formatPercent(pct float64) string {
+	if pct < 10 {
+		return fmt.Sprintf("%.1f%%", pct)
+	}
+	return fmt.Sprintf("%.0f%%", pct)
+}
+
+// cacheEmoji returns the emoji for a cache library.
+// Each emoji is chosen to represent something about the library.
+var cacheEmoji = map[string]string{
+	"bdcache":   "🟡", // yellow circle - our cache
+	"otter":     "🦦", // otter - the animal
+	"ristretto": "☕", // coffee - Italian espresso
+	"tinylfu":   "🔬", // microscope - tiny/research
+	"freecache": "🆓", // free sign
+	"lru":       "📚", // books - classic algorithm
+}
+
+// formatCacheName returns a cache name with its emoji, padded for alignment.
+// All entries use the same format: "name emoji" with padding to 13 visual chars.
+// Since emojis take 2 visual chars but more bytes, we manually construct the string.
+func formatCacheName(name string) string {
+	emoji := cacheEmoji[name]
+	if emoji == "" {
+		return fmt.Sprintf("%-13s", name)
+	}
+	// Construct: "name emoji" then pad with spaces to reach 13 visual chars
+	// emoji = 2 visual chars, so we need (13 - len(name) - 1 - 2) spaces after emoji
+	// where 1 is the space between name and emoji
+	visualLen := len(name) + 1 + 2 // name + space + emoji(2 visual)
+	padding := 13 - visualLen
+	if padding < 0 {
+		padding = 0
+	}
+	return name + " " + emoji + strings.Repeat(" ", padding)
 }
 
 func measurePerf(name string, getFn, setFn func(b *testing.B)) perfResult {
@@ -437,13 +581,54 @@ func runConcurrentBenchmark() {
 			fmt.Printf("### Concurrent Throughput (mixed read/write): %d threads\n", threads)
 		}
 		fmt.Println()
-		fmt.Println("| Cache      | Get QPS    | Set QPS    |")
-		fmt.Println("|------------|------------|------------|")
+		fmt.Println("| Cache         | Get QPS    | Set QPS    |")
+		fmt.Println("|---------------|------------|------------|")
 
 		for _, r := range results {
-			fmt.Printf("| %-10s | %7.2fM   | %7.2fM   |\n",
-				r.name, r.getQPS/1e6, r.setQPS/1e6)
+			fmt.Printf("| %s | %7.2fM   | %7.2fM   |\n",
+				formatCacheName(r.name), r.getQPS/1e6, r.setQPS/1e6)
 		}
+
+		// Print relative performance summary
+		fmt.Println()
+		printThroughputSummary(results, "Get", func(r concurrentResult) float64 { return r.getQPS })
+		printThroughputSummary(results, "Set", func(r concurrentResult) float64 { return r.setQPS })
+	}
+}
+
+func printThroughputSummary(results []concurrentResult, metric string, getQPS func(concurrentResult) float64) {
+	// Sort by this metric (highest first for throughput)
+	sorted := make([]concurrentResult, len(results))
+	copy(sorted, results)
+	for i := range len(sorted) - 1 {
+		for j := i + 1; j < len(sorted); j++ {
+			if getQPS(sorted[j]) > getQPS(sorted[i]) {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	// Find bdcache position
+	var bdcacheIdx int
+	for i, r := range sorted {
+		if r.name == "bdcache" {
+			bdcacheIdx = i
+			break
+		}
+	}
+
+	bdcacheQPS := getQPS(sorted[bdcacheIdx])
+
+	if bdcacheIdx == 0 {
+		// bdcache is fastest
+		secondBest := sorted[1]
+		pctFaster := (bdcacheQPS - getQPS(secondBest)) / getQPS(secondBest) * 100
+		fmt.Printf("🏆 %s throughput: +%s faster than 2nd best (%s)\n", metric, formatPercent(pctFaster), secondBest.name)
+	} else {
+		// bdcache is not fastest
+		best := sorted[0]
+		pctSlower := (getQPS(best) - bdcacheQPS) / bdcacheQPS * 100
+		fmt.Printf("📉 %s throughput: -%s slower than best (%s)\n", metric, formatPercent(pctSlower), best.name)
 	}
 }
 
