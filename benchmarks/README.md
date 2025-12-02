@@ -53,56 +53,17 @@ Compares raw Get operation performance across:
 - otter (S3-FIFO with manual persistence)
 - ristretto (TinyLFU)
 
-### Hit Rate Comparison
+### Full Benchmark Suite
 
 ```bash
-go test -run=TestFIFOvsLRU_ScanResistance -v
+go test -run=TestBenchmarkSuite -v
 ```
 
-Demonstrates S3-FIFO's scan resistance with a cherrypicked workload:
-1. Build 8K item working set (fits in 10K cache)
-2. Access working set once (marks as hot)
-3. One-time scan through 10K cold items
-4. Re-access working set (should hit)
-
-**Results:**
-- S3-FIFO: 100% hit rate (working set protected in Main queue)
-- LRU: 0% hit rate (scan evicted entire working set)
-
-This is a **best-case scenario for S3-FIFO**. Many real workloads won't see this dramatic of a difference.
-
-### Independent Hit Rate Benchmark
-
-Using [scalalang2/go-cache-benchmark](https://github.com/scalalang2/go-cache-benchmark) (500K items, Zipfian distribution):
-
-| Cache Size | bdcache | TinyLFU | Otter | S3-FIFO | SIEVE |
-|-----------|---------|---------|-------|---------|-------|
-| **0.1%** | **48.12%** | 47.37% | - | 47.16% | 47.42% |
-| **1%** | **64.45%** | 63.94% | 63.60% | 63.59% | 63.33% |
-| **10%** | **80.39%** | 80.43% | 79.86% | 79.84% | - |
-
-bdcache consistently ranks top 1-2 for hit rate while maintaining competitive throughput (5-12M QPS).
-
-### Additional Tests
-
-```bash
-# S3-FIFO correctness tests
-go test -run=TestS3FIFO -v
-
-# Detailed behavior demonstrations
-go test -run=TestS3FIFODetailed -v
-
-# Hit rate comparisons (mixed workloads)
-go test -run=TestHitRateComparison -v
-```
+Runs the complete benchmark comparison including hit rates, latency, and concurrent throughput across all thread counts (1, 4, 8, 12, 16, 24, 32).
 
 ## Benchmark Files
 
-- `benchmark_comparison_test.go` - Speed benchmarks across libraries
-- `hitrate_comparison_test.go` - Hit rate workload generators
-- `fifo_vs_lru_test.go` - S3-FIFO vs LRU scan resistance demo
-- `s3fifo_debug_test.go` - Queue behavior validation
-- `s3fifo_detailed_test.go` - Detailed eviction order verification
+- `benchmark_test.go` - Speed, hit rate, and throughput benchmarks across libraries
 
 ## Interpreting Results
 
