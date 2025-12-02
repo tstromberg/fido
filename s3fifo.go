@@ -37,10 +37,11 @@ const (
 //   - If freq == 0 → evict (don't add to ghost, already there)
 //   - If freq > 0 → reinsert to back of Main and decrement freq (lazy promotion)
 type s3fifo[K comparable, V any] struct {
-	shards     [numShards]*shard[K, V]
-	seed       maphash.Seed
-	keyIsInt   bool // Fast path flag for int keys
-	keyIsInt64 bool // Fast path flag for int64 keys
+	shards      [numShards]*shard[K, V]
+	seed        maphash.Seed
+	keyIsInt    bool // Fast path flag for int keys
+	keyIsInt64  bool // Fast path flag for int64 keys
+	keyIsString bool // Fast path flag for string keys
 }
 
 // shard is an independent S3-FIFO cache partition.
@@ -95,6 +96,8 @@ func newS3FIFO[K comparable, V any](capacity int) *s3fifo[K, V] {
 		c.keyIsInt = true
 	case int64:
 		c.keyIsInt64 = true
+	case string:
+		c.keyIsString = true
 	}
 
 	for i := range numShards {
@@ -133,7 +136,7 @@ func newShard[K comparable, V any](capacity int) *shard[K, V] {
 
 // getShard returns the shard for a given key using type-optimized hashing.
 // Uses bitwise AND with shardMask for fast modulo (numShards must be power of 2).
-// Fast paths for int and int64 keys avoid the type switch overhead entirely.
+// Fast paths for int, int64, and string keys avoid the type switch overhead entirely.
 func (c *s3fifo[K, V]) getShard(key K) *shard[K, V] {
 	// Fast path for int keys (most common case in benchmarks).
 	// The keyIsInt flag is set once at construction, so this branch is predictable.
@@ -146,6 +149,12 @@ func (c *s3fifo[K, V]) getShard(key K) *shard[K, V] {
 	if c.keyIsInt64 {
 		k := *(*int64)(unsafe.Pointer(&key))
 		return c.shards[uint64(k)&shardMask] //nolint:gosec // G115: intentional wrap
+	}
+	if c.keyIsString {
+		// Use unsafe to extract the string without boxing to any.
+		// This is safe because we only enter this path when K is string.
+		k := *(*string)(unsafe.Pointer(&key))
+		return c.shards[maphash.String(c.seed, k)&shardMask]
 	}
 	// Slow path: use type switch for other key types
 	return c.shards[c.shardIndexSlow(key)]

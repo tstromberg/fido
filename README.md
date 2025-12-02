@@ -8,7 +8,7 @@
 
 <br clear="right">
 
-Blazing fast in-memory Go cache with optional L2 persistence layer.
+Stupid fast in-memory Go cache with optional L2 persistence layer.
 
 ## Install
 
@@ -65,8 +65,6 @@ cache, _ := bdcache.New[string, User](ctx,
 bdcache prioritizes high hit-rates and low read latency, but it performs quite well all around.
 
 Here's the results from an M4 MacBook Pro - run `make bench` to see the results for yourself:
-```
-════════════════════════════════════════════════════════════════════════════╝
 
 ### Hit Rate (Zipf α=0.99, 1M ops, 1M keyspace)
 
@@ -192,9 +190,8 @@ Here's the results from an M4 MacBook Pro - run `make bench` to see the results 
 
 🏆 Get throughput: +0.9% faster than 2nd best (otter)
 🏆 Set throughput: +9.1% faster than 2nd best (freecache)
-```
 
-There will certainly be benchmarks where other caches perform faster, but no solution blends speed and persistence the way that bdcache does.
+NOTE: Performance characteristics often have trade-offs. There are almost certainly workloads where other cache implementations are faster, but nobody blends speed and persistence the way that bdcache does.
 
 ## License
 
