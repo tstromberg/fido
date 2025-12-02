@@ -44,20 +44,21 @@ func TestBenchmarkSuite(t *testing.T) {
 // =============================================================================
 
 const (
-	hitRateKeySpace = 500000
-	hitRateWorkload = 750000
+	hitRateKeySpace = 1000000
+	hitRateWorkload = 1000000
 	hitRateAlpha    = 0.99
 )
 
 func runHitRateBenchmark() {
 	fmt.Println()
-	fmt.Println("### Hit Rate (Zipf α=0.99, 750K ops)")
+	fmt.Println("### Hit Rate (Zipf α=0.99, 1M ops, 1M keyspace)")
 	fmt.Println()
-	fmt.Println("| Cache      | Size=0.1% | Size=1% | Size=10% |")
+	fmt.Println("| Cache      | Size=2.5% | Size=5% | Size=10% |")
 	fmt.Println("|------------|-----------|---------|----------|")
 
 	workload := generateWorkload(hitRateWorkload, hitRateKeySpace, hitRateAlpha, 42)
-	cacheSizes := []int{500, 5000, 50000}
+	// Use sizes >= 25K so freecache's 512KB minimum doesn't give unfair advantage
+	cacheSizes := []int{25000, 50000, 100000}
 
 	caches := []struct {
 		name string
@@ -165,10 +166,10 @@ func hitRateTinyLFU(workload []int, cacheSize int) float64 {
 }
 
 func hitRateFreecache(workload []int, cacheSize int) float64 {
-	// freecache uses bytes, estimate ~64 bytes per entry
-	cacheBytes := cacheSize * 64
+	// freecache uses bytes; estimate ~24 bytes per entry (key + value + overhead)
+	cacheBytes := cacheSize * 24
 	if cacheBytes < 512*1024 {
-		cacheBytes = 512 * 1024 // minimum 512KB
+		cacheBytes = 512 * 1024 // freecache minimum
 	}
 	cache := freecache.NewCache(cacheBytes)
 	var hits int
