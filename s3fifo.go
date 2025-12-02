@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -36,8 +37,10 @@ const (
 //   - If freq == 0 → evict (don't add to ghost, already there)
 //   - If freq > 0 → reinsert to back of Main and decrement freq (lazy promotion)
 type s3fifo[K comparable, V any] struct {
-	shards [numShards]*shard[K, V]
-	seed   maphash.Seed
+	shards     [numShards]*shard[K, V]
+	seed       maphash.Seed
+	keyIsInt   bool // Fast path flag for int keys
+	keyIsInt64 bool // Fast path flag for int64 keys
 }
 
 // shard is an independent S3-FIFO cache partition.
@@ -84,6 +87,16 @@ func newS3FIFO[K comparable, V any](capacity int) *s3fifo[K, V] {
 		seed: maphash.MakeSeed(),
 	}
 
+	// Detect key type at construction time to enable fast-path hash functions.
+	// This avoids the type switch overhead on every Get/Set call.
+	var zeroKey K
+	switch any(zeroKey).(type) {
+	case int:
+		c.keyIsInt = true
+	case int64:
+		c.keyIsInt64 = true
+	}
+
 	for i := range numShards {
 		c.shards[i] = newShard[K, V](shardCap)
 	}
@@ -120,28 +133,38 @@ func newShard[K comparable, V any](capacity int) *shard[K, V] {
 
 // getShard returns the shard for a given key using type-optimized hashing.
 // Uses bitwise AND with shardMask for fast modulo (numShards must be power of 2).
+// Fast paths for int and int64 keys avoid the type switch overhead entirely.
 func (c *s3fifo[K, V]) getShard(key K) *shard[K, V] {
+	// Fast path for int keys (most common case in benchmarks).
+	// The keyIsInt flag is set once at construction, so this branch is predictable.
+	if c.keyIsInt {
+		// Use unsafe to avoid boxing the key to any.
+		// This is safe because we only enter this path when K is int.
+		k := *(*int)(unsafe.Pointer(&key))
+		return c.shards[uint64(k)&shardMask] //nolint:gosec // G115: intentional wrap
+	}
+	if c.keyIsInt64 {
+		k := *(*int64)(unsafe.Pointer(&key))
+		return c.shards[uint64(k)&shardMask] //nolint:gosec // G115: intentional wrap
+	}
+	// Slow path: use type switch for other key types
+	return c.shards[c.shardIndexSlow(key)]
+}
+
+// shardIndexSlow computes the shard index using a type switch.
+// This is the fallback for key types other than int/int64.
+func (c *s3fifo[K, V]) shardIndexSlow(key K) uint64 {
 	switch k := any(key).(type) {
-	case int:
-		if k < 0 {
-			k = -k
-		}
-		return c.shards[k&shardMask]
-	case int64:
-		if k < 0 {
-			k = -k
-		}
-		return c.shards[k&shardMask]
 	case uint:
-		return c.shards[k&shardMask]
+		return uint64(k) & shardMask
 	case uint64:
-		return c.shards[k&shardMask]
+		return k & shardMask
 	case string:
-		return c.shards[maphash.String(c.seed, k)&shardMask]
+		return maphash.String(c.seed, k) & shardMask
 	default:
 		// Fallback for other types: convert to string and hash
 		//nolint:errcheck,forcetypeassert // Only called for string-convertible types
-		return c.shards[maphash.String(c.seed, any(key).(string))&shardMask]
+		return maphash.String(c.seed, any(key).(string)) & shardMask
 	}
 }
 
@@ -192,15 +215,17 @@ func (c *s3fifo[K, V]) setToMemory(key K, value V, expiry time.Time) {
 func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 	s.mu.Lock()
 
-	oldItems := s.items.Load()
+	items := s.items.Load()
 
-	// Update existing entry (in-place, no map copy needed)
-	if ent, ok := (*oldItems)[key]; ok {
+	// Fast path: update existing entry in-place (no map copy needed)
+	if ent, ok := (*items)[key]; ok {
 		ent.value = value
 		ent.expiryNano = expiryNano
 		s.mu.Unlock()
 		return
 	}
+
+	// Slow path: insert new key (already holding lock)
 
 	// Check if key is in ghost queue
 	inGhost := false
