@@ -985,7 +985,7 @@ func TestFilePersist_Flush_RemovesFiles(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	cacheDir := fp.(*persister[string, int]).Dir
+	cacheDir := fp.(*persister[string, int]).Dir //nolint:errcheck // Test code - panic is acceptable if type assertion fails
 
 	// Store multiple entries
 	for i := range 10 {
@@ -997,9 +997,10 @@ func TestFilePersist_Flush_RemovesFiles(t *testing.T) {
 	// Count .gob files on disk before flush
 	countGobFiles := func() int {
 		count := 0
+		//nolint:errcheck // WalkDir errors are handled by returning nil to continue walking
 		_ = filepath.WalkDir(cacheDir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // Intentionally continue walking on errors
 			}
 			if !d.IsDir() && filepath.Ext(path) == ".gob" {
 				count++

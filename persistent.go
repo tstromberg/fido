@@ -3,7 +3,6 @@ package bdcache
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -54,8 +53,6 @@ func Persistent[K comparable, V any](ctx context.Context, p PersistenceLayer[K, 
 		warmup:     cfg.warmup,
 	}
 
-	slog.Info("initialized persistent cache")
-
 	// Warm up cache from persistence if configured
 	if cfg.warmup > 0 {
 		//nolint:contextcheck // Background warmup uses detached context to complete independently
@@ -72,27 +69,16 @@ func Persistent[K comparable, V any](ctx context.Context, p PersistenceLayer[K, 
 }
 
 // doWarmup loads entries from persistence into memory cache.
+// Errors are silently ignored since warmup is best-effort.
 func (c *PersistentCache[K, V]) doWarmup(ctx context.Context) {
 	entryCh, errCh := c.Store.LoadRecent(ctx, c.warmup)
 
-	loaded := 0
 	for entry := range entryCh {
 		c.memory.setToMemory(entry.Key, entry.Value, entry.Expiry)
-		loaded++
 	}
 
-	// Check for errors
-	select {
-	case err := <-errCh:
-		if err != nil {
-			slog.Warn("error during cache warmup", "error", err, "loaded", loaded)
-		}
-	default:
-	}
-
-	if loaded > 0 {
-		slog.Info("cache warmup complete", "loaded", loaded)
-	}
+	// Drain error channel (errors silently ignored for best-effort warmup)
+	<-errCh
 }
 
 // Get retrieves a value from the cache.
@@ -109,16 +95,13 @@ func (c *PersistentCache[K, V]) Get(ctx context.Context, key K) (V, bool, error)
 
 	// Validate key before accessing persistence (security: prevent path traversal)
 	if err := c.Store.ValidateKey(key); err != nil {
-		slog.Warn("invalid key for persistence", "error", err, "key", key)
-		return zero, false, nil
+		return zero, false, fmt.Errorf("invalid key: %w", err)
 	}
 
 	// Check persistence
 	val, expiry, found, err := c.Store.Load(ctx, key)
 	if err != nil {
-		// Log error but don't fail - graceful degradation
-		slog.Warn("persistence load failed", "error", err, "key", key)
-		return zero, false, nil
+		return zero, false, fmt.Errorf("persistence load: %w", err)
 	}
 
 	if !found {
@@ -197,9 +180,10 @@ func (c *PersistentCache[K, V]) Set(ctx context.Context, key K, value V, ttl ...
 
 // SetAsync stores a value in the cache, handling persistence asynchronously.
 // If no TTL is provided, the default TTL is used.
-// Key validation and in-memory caching happen synchronously. Persistence errors are logged but not returned.
+// Key validation and in-memory caching happen synchronously.
+// Returns a channel that will receive any persistence error (or be closed on success).
 // Returns an error only for validation failures (e.g., invalid key format).
-func (c *PersistentCache[K, V]) SetAsync(ctx context.Context, key K, value V, ttl ...time.Duration) error {
+func (c *PersistentCache[K, V]) SetAsync(ctx context.Context, key K, value V, ttl ...time.Duration) (<-chan error, error) {
 	var t time.Duration
 	if len(ttl) > 0 {
 		t = ttl[0]
@@ -208,40 +192,42 @@ func (c *PersistentCache[K, V]) SetAsync(ctx context.Context, key K, value V, tt
 
 	// Validate key early (synchronous)
 	if err := c.Store.ValidateKey(key); err != nil {
-		return err
+		return nil, err
 	}
 
 	// ALWAYS update memory first - reliability guarantee (synchronous)
 	c.memory.setToMemory(key, value, expiry)
 
 	// Update persistence asynchronously
+	errCh := make(chan error, 1)
 	go func() {
-		// Derive context with timeout to prevent hanging
+		defer close(errCh)
 		storeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-
 		if err := c.Store.Store(storeCtx, key, value, expiry); err != nil {
-			slog.Warn("async persistence store failed", "error", err, "key", key)
+			errCh <- fmt.Errorf("async persistence: %w", err)
 		}
 	}()
 
-	return nil
+	return errCh, nil
 }
 
 // Delete removes a value from the cache.
-func (c *PersistentCache[K, V]) Delete(ctx context.Context, key K) {
-	// Remove from memory
+// The value is always removed from memory. Returns an error if persistence deletion fails.
+func (c *PersistentCache[K, V]) Delete(ctx context.Context, key K) error {
+	// Remove from memory first (always succeeds)
 	c.memory.deleteFromMemory(key)
 
 	// Validate key before accessing persistence (security: prevent path traversal)
 	if err := c.Store.ValidateKey(key); err != nil {
-		slog.Warn("invalid key for persistence delete", "error", err, "key", key)
-		return
+		return fmt.Errorf("invalid key: %w", err)
 	}
+
 	if err := c.Store.Delete(ctx, key); err != nil {
-		// Log error but don't fail - graceful degradation
-		slog.Warn("persistence delete failed", "error", err, "key", key)
+		return fmt.Errorf("persistence delete: %w", err)
 	}
+
+	return nil
 }
 
 // Flush removes all entries from the cache, including persistent storage.
@@ -251,10 +237,9 @@ func (c *PersistentCache[K, V]) Flush(ctx context.Context) (int, error) {
 
 	persistRemoved, err := c.Store.Flush(ctx)
 	if err != nil {
-		return memoryRemoved, fmt.Errorf("persistence flush failed: %w", err)
+		return memoryRemoved, fmt.Errorf("persistence flush: %w", err)
 	}
 
-	slog.Info("cache flushed", "memory", memoryRemoved, "persist", persistRemoved)
 	return memoryRemoved + persistRemoved, nil
 }
 

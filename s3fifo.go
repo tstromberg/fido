@@ -372,13 +372,13 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 	}
 
 	// Copy-on-write for new key
-	currentItems := s.items.Load()
-	newItems := make(map[K]*entry[K, V], len(*currentItems)+1)
-	for k, v := range *currentItems {
-		newItems[k] = v
+	old := s.items.Load()
+	m := make(map[K]*entry[K, V], len(*old)+1)
+	for k, v := range *old {
+		m[k] = v
 	}
-	newItems[key] = ent
-	s.items.Store(&newItems)
+	m[key] = ent
+	s.items.Store(&m)
 	s.mu.Unlock()
 }
 
@@ -456,14 +456,14 @@ func (s *shard[K, V]) evictFromMain() {
 // deleteFromMap removes a key from the items map using copy-on-write.
 // Must be called with s.mu held.
 func (s *shard[K, V]) deleteFromMap(key K) {
-	oldItems := s.items.Load()
-	newItems := make(map[K]*entry[K, V], len(*oldItems))
-	for k, v := range *oldItems {
+	old := s.items.Load()
+	m := make(map[K]*entry[K, V], len(*old))
+	for k, v := range *old {
 		if k != key {
-			newItems[k] = v
+			m[k] = v
 		}
 	}
-	s.items.Store(&newItems)
+	s.items.Store(&m)
 }
 
 // addToGhost adds a key to the ghost queue.
@@ -502,10 +502,10 @@ func (s *shard[K, V]) flush() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	items := s.items.Load()
-	n := len(*items)
-	newItems := make(map[K]*entry[K, V], s.capacity)
-	s.items.Store(&newItems)
+	old := s.items.Load()
+	n := len(*old)
+	m := make(map[K]*entry[K, V], s.capacity)
+	s.items.Store(&m)
 	s.small.init()
 	s.main.init()
 	s.ghost.init()

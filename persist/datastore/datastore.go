@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/codeGROOVE-dev/bdcache"
@@ -28,11 +27,11 @@ type persister[K comparable, V any] struct {
 // ValidateKey checks if a key is valid for Datastore persistence.
 // Datastore has stricter key length limits than files.
 func (*persister[K, V]) ValidateKey(key K) error {
-	keyStr := fmt.Sprintf("%v", key)
-	if len(keyStr) > maxDatastoreKeyLen {
-		return fmt.Errorf("key too long: %d bytes (max %d for datastore)", len(keyStr), maxDatastoreKeyLen)
+	s := fmt.Sprintf("%v", key)
+	if len(s) > maxDatastoreKeyLen {
+		return fmt.Errorf("key too long: %d bytes (max %d for datastore)", len(s), maxDatastoreKeyLen)
 	}
-	if keyStr == "" {
+	if s == "" {
 		return errors.New("key cannot be empty")
 	}
 	return nil
@@ -67,8 +66,6 @@ func New[K comparable, V any](ctx context.Context, cacheID string) (bdcache.Pers
 	// Verify connectivity (assert readiness)
 	// Note: ds9 doesn't expose Ping, but client creation validates connectivity
 
-	slog.Debug("initialized datastore persistence", "database", cacheID, "kind", datastoreKind)
-
 	return &persister[K, V]{
 		client: client,
 		kind:   datastoreKind,
@@ -78,8 +75,7 @@ func New[K comparable, V any](ctx context.Context, cacheID string) (bdcache.Pers
 // makeKey creates a Datastore key from a cache key.
 // We use the string representation directly as the key name.
 func (p *persister[K, V]) makeKey(key K) *ds.Key {
-	keyStr := fmt.Sprintf("%v", key)
-	return ds.NameKey(p.kind, keyStr, nil)
+	return ds.NameKey(p.kind, fmt.Sprintf("%v", key), nil)
 }
 
 // Load retrieves a value from Datastore.
@@ -168,10 +164,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (entries <-
 		}
 
 		iter := p.client.Run(ctx, query)
-
 		now := time.Now()
-		loaded := 0
-		expired := 0
 
 		for {
 			var entry datastoreEntry
@@ -194,7 +187,6 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (entries <-
 
 			// Skip expired entries - cleanup is handled by native TTL or periodic Cleanup() calls
 			if !entry.Expiry.IsZero() && now.After(entry.Expiry) {
-				expired++
 				continue
 			}
 
@@ -207,10 +199,6 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (entries <-
 				// If Sscanf fails, try direct type assertion for string keys
 				sk, ok := any(ks).(K)
 				if !ok {
-					slog.Warn("failed to parse key from datastore",
-						"keyStr", ks,
-						"expectedType", fmt.Sprintf("%T", key),
-						"error", err)
 					continue
 				}
 				key = sk
@@ -219,18 +207,11 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (entries <-
 			// Decode value from base64
 			vb, err := base64.StdEncoding.DecodeString(entry.Value)
 			if err != nil {
-				slog.Warn("failed to decode value from datastore",
-					"key", ks,
-					"error", err)
 				continue
 			}
 
 			var value V
 			if err := json.Unmarshal(vb, &value); err != nil {
-				slog.Warn("failed to unmarshal value from datastore",
-					"key", ks,
-					"valueLength", len(vb),
-					"error", err)
 				continue
 			}
 
@@ -240,10 +221,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (entries <-
 				Expiry:    entry.Expiry,
 				UpdatedAt: entry.UpdatedAt,
 			}
-			loaded++
 		}
-
-		slog.Info("loaded cache entries from datastore", "loaded", loaded, "expired", expired)
 	}()
 
 	return entryCh, errCh
@@ -277,7 +255,6 @@ func (p *persister[K, V]) Cleanup(ctx context.Context, maxAge time.Duration) (in
 		return 0, fmt.Errorf("delete expired entries: %w", err)
 	}
 
-	slog.Info("cleaned up expired entries", "count", len(keys), "kind", p.kind)
 	return len(keys), nil
 }
 
@@ -302,7 +279,6 @@ func (p *persister[K, V]) Flush(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("delete all entries: %w", err)
 	}
 
-	slog.Info("flushed datastore cache", "count", len(keys), "kind", p.kind)
 	return len(keys), nil
 }
 

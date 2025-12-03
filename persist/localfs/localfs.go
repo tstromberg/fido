@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,11 +87,9 @@ func New[K comparable, V any](cacheID string, dir string) (bdcache.PersistenceLa
 	if err := os.WriteFile(testFile, []byte("test"), 0o600); err != nil {
 		return nil, fmt.Errorf("cache dir not writable: %w", err)
 	}
-	if err := os.Remove(testFile); err != nil {
-		slog.Debug("failed to remove test file", "file", testFile, "error", err)
+	if err := os.Remove(testFile); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("remove test file: %w", err)
 	}
-
-	slog.Debug("initialized local filesystem persistence", "dir", fullDir)
 
 	return &persister[K, V]{
 		Dir:         fullDir,
@@ -103,13 +100,13 @@ func New[K comparable, V any](cacheID string, dir string) (bdcache.PersistenceLa
 // ValidateKey checks if a key is valid for file persistence.
 // Keys must be alphanumeric, dash, underscore, period, or colon, and max 127 characters.
 func (*persister[K, V]) ValidateKey(key K) error {
-	keyStr := fmt.Sprintf("%v", key)
-	if len(keyStr) > maxKeyLength {
-		return fmt.Errorf("key too long: %d bytes (max %d)", len(keyStr), maxKeyLength)
+	s := fmt.Sprintf("%v", key)
+	if len(s) > maxKeyLength {
+		return fmt.Errorf("key too long: %d bytes (max %d)", len(s), maxKeyLength)
 	}
 
 	// Allow alphanumeric, dash, underscore, period, colon
-	for _, ch := range keyStr {
+	for _, ch := range s {
 		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
 			(ch < '0' || ch > '9') && ch != '-' && ch != '_' && ch != '.' && ch != ':' {
 			return fmt.Errorf("invalid character %q in key (only alphanumeric, dash, underscore, period, colon allowed)", ch)
@@ -123,12 +120,12 @@ func (*persister[K, V]) ValidateKey(key K) error {
 // Hashes the key and uses first 2 characters of hex hash as subdirectory for even distribution
 // (e.g., key "http://example.com" -> "a3/a3f2...gob").
 func (*persister[K, V]) keyToFilename(key K) string {
-	keyStr := fmt.Sprintf("%v", key)
-	hash := sha256.Sum256([]byte(keyStr))
-	hexHash := hex.EncodeToString(hash[:])
+	s := fmt.Sprintf("%v", key)
+	sum := sha256.Sum256([]byte(s))
+	h := hex.EncodeToString(sum[:])
 
 	// Squid-style: use first 2 chars of hash as subdirectory
-	return filepath.Join(hexHash[:2], hexHash+".gob")
+	return filepath.Join(h[:2], h+".gob")
 }
 
 // Location returns the full file path where a key is stored.
@@ -151,11 +148,6 @@ func (p *persister[K, V]) Load(ctx context.Context, key K) (value V, expiry time
 		}
 		return zero, time.Time{}, false, fmt.Errorf("open file: %w", err)
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			slog.Debug("failed to close file", "file", filename, "error", err)
-		}
-	}()
 
 	// Get reader from pool and reset it for this file
 	reader, ok := readerPool.Get().(*bufio.Reader)
@@ -163,22 +155,32 @@ func (p *persister[K, V]) Load(ctx context.Context, key K) (value V, expiry time
 		reader = bufio.NewReaderSize(file, 4096)
 	}
 	reader.Reset(file)
-	defer readerPool.Put(reader)
 
 	var entry bdcache.Entry[K, V]
 	dec := gob.NewDecoder(reader)
-	if err := dec.Decode(&entry); err != nil {
-		// File corrupted, remove it
-		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove corrupted file", "file", filename, "error", err)
-		}
-		return zero, time.Time{}, false, nil
+	decErr := dec.Decode(&entry)
+
+	readerPool.Put(reader)
+	closeErr := file.Close()
+
+	if decErr != nil {
+		// File corrupted, try to remove it
+		rmErr := os.Remove(filename)
+		return zero, time.Time{}, false, errors.Join(
+			fmt.Errorf("decode file: %w", decErr),
+			closeErr,
+			rmErr,
+		)
+	}
+
+	if closeErr != nil {
+		return zero, time.Time{}, false, fmt.Errorf("close file: %w", closeErr)
 	}
 
 	// Check expiration
 	if !entry.Expiry.IsZero() && time.Now().After(entry.Expiry) {
 		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove expired file", "file", filename, "error", err)
+			return zero, time.Time{}, false, fmt.Errorf("remove expired file: %w", err)
 		}
 		return zero, time.Time{}, false, nil
 	}
@@ -245,25 +247,19 @@ func (p *persister[K, V]) Store(ctx context.Context, key K, value V, expiry time
 	closeErr := file.Close()
 
 	if encErr != nil {
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove temp file after encode error", "file", tempFile, "error", err)
-		}
-		return fmt.Errorf("encode entry: %w", encErr)
+		rmErr := os.Remove(tempFile)
+		return errors.Join(fmt.Errorf("encode entry: %w", encErr), rmErr)
 	}
 
 	if closeErr != nil {
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove temp file after close error", "file", tempFile, "error", err)
-		}
-		return fmt.Errorf("close temp file: %w", closeErr)
+		rmErr := os.Remove(tempFile)
+		return errors.Join(fmt.Errorf("close temp file: %w", closeErr), rmErr)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tempFile, filename); err != nil {
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove temp file after rename error", "file", tempFile, "error", err)
-		}
-		return fmt.Errorf("rename file: %w", err)
+		rmErr := os.Remove(tempFile)
+		return errors.Join(fmt.Errorf("rename file: %w", err), rmErr)
 	}
 
 	return nil
@@ -280,6 +276,7 @@ func (p *persister[K, V]) Delete(ctx context.Context, key K) error {
 }
 
 // LoadRecent streams entries from files, returning up to 'limit' most recently updated entries.
+// Errors encountered while reading individual files are collected and returned via the error channel.
 //
 //nolint:gocritic // unnamedResult - channel returns are self-documenting
 func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdcache.Entry[K, V], <-chan error) {
@@ -291,13 +288,13 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 		defer close(errCh)
 
 		now := time.Now()
-		expired := 0
+		var errs []error
 
 		// Load all entries first to sort by UpdatedAt
 		var entries []bdcache.Entry[K, V]
 
 		// Walk the directory tree to support squid-style subdirectories
-		err := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
+		walkErr := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
 			// Check context cancellation
 			select {
 			case <-ctx.Done():
@@ -306,8 +303,8 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 			}
 
 			if err != nil {
-				slog.Warn("error walking cache dir", "path", path, "error", err)
-				return nil // Continue walking
+				errs = append(errs, fmt.Errorf("walk %s: %w", path, err))
+				return nil
 			}
 
 			if info.IsDir() || filepath.Ext(info.Name()) != ".gob" {
@@ -316,7 +313,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 
 			file, err := os.Open(path)
 			if err != nil {
-				slog.Warn("failed to open cache file", "file", path, "error", err)
+				errs = append(errs, fmt.Errorf("open %s: %w", path, err))
 				return nil
 			}
 
@@ -329,37 +326,40 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 
 			var e bdcache.Entry[K, V]
 			dec := gob.NewDecoder(reader)
-			if err := dec.Decode(&e); err != nil {
-				slog.Warn("failed to decode cache file", "file", path, "error", err)
-				readerPool.Put(reader)
-				if err := file.Close(); err != nil {
-					slog.Debug("failed to close file after decode error", "file", path, "error", err)
-				}
-				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-					slog.Debug("failed to remove corrupted file", "file", path, "error", err)
-				}
+			decErr := dec.Decode(&e)
+
+			readerPool.Put(reader)
+			closeErr := file.Close()
+
+			if decErr != nil {
+				rmErr := os.Remove(path)
+				errs = append(errs, errors.Join(
+					fmt.Errorf("decode %s: %w", path, decErr),
+					closeErr,
+					rmErr,
+				))
 				return nil
 			}
-			readerPool.Put(reader)
-			if err := file.Close(); err != nil {
-				slog.Debug("failed to close file", "file", path, "error", err)
+
+			if closeErr != nil {
+				errs = append(errs, fmt.Errorf("close %s: %w", path, closeErr))
+				return nil
 			}
 
 			// Skip expired entries and clean up
 			if !e.Expiry.IsZero() && now.After(e.Expiry) {
 				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-					slog.Debug("failed to remove expired file", "file", path, "error", err)
+					errs = append(errs, fmt.Errorf("remove expired %s: %w", path, err))
 				}
-				expired++
 				return nil
 			}
 
 			entries = append(entries, e)
 			return nil
 		})
-		if err != nil {
-			errCh <- fmt.Errorf("walk dir: %w", err)
-			return
+
+		if walkErr != nil {
+			errs = append(errs, fmt.Errorf("walk dir: %w", walkErr))
 		}
 
 		// Sort by UpdatedAt descending (most recent first)
@@ -368,16 +368,19 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 		})
 
 		// Send only up to limit entries
-		loaded := 0
+		sent := 0
 		for _, e := range entries {
-			if limit > 0 && loaded >= limit {
+			if limit > 0 && sent >= limit {
 				break
 			}
 			entryCh <- e
-			loaded++
+			sent++
 		}
 
-		slog.Info("loaded cache entries from disk", "loaded", loaded, "expired", expired, "total", len(entries))
+		// Send collected errors
+		if len(errs) > 0 {
+			errCh <- errors.Join(errs...)
+		}
 	}()
 
 	return entryCh, errCh
@@ -385,12 +388,14 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 
 // Cleanup removes expired entries from file storage.
 // Walks through all cache files and deletes those with expired timestamps.
+// Returns the count of deleted entries and any errors encountered.
 func (p *persister[K, V]) Cleanup(ctx context.Context, maxAge time.Duration) (int, error) {
 	cutoff := time.Now().Add(-maxAge)
 	deleted := 0
+	var errs []error
 
 	// Walk directory tree to handle squid-style subdirectories
-	err := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
@@ -399,8 +404,8 @@ func (p *persister[K, V]) Cleanup(ctx context.Context, maxAge time.Duration) (in
 		}
 
 		if err != nil {
-			slog.Debug("error walking cache dir during cleanup", "path", path, "error", err)
-			return nil // Continue walking
+			errs = append(errs, fmt.Errorf("walk %s: %w", path, err))
+			return nil
 		}
 
 		// Skip directories and non-gob files
@@ -411,10 +416,7 @@ func (p *persister[K, V]) Cleanup(ctx context.Context, maxAge time.Duration) (in
 		// Read and check expiry
 		file, err := os.Open(path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			slog.Debug("failed to open file for cleanup", "file", path, "error", err)
+			errs = append(errs, fmt.Errorf("open %s: %w", path, err))
 			return nil
 		}
 
@@ -427,89 +429,94 @@ func (p *persister[K, V]) Cleanup(ctx context.Context, maxAge time.Duration) (in
 
 		var entry bdcache.Entry[K, V]
 		decoder := gob.NewDecoder(reader)
-		err = decoder.Decode(&entry)
+		decErr := decoder.Decode(&entry)
 
 		readerPool.Put(reader)
+		closeErr := file.Close()
 
-		if closeErr := file.Close(); closeErr != nil {
-			slog.Debug("failed to close file during cleanup", "file", path, "error", closeErr)
+		if decErr != nil {
+			errs = append(errs, errors.Join(
+				fmt.Errorf("decode %s: %w", path, decErr),
+				closeErr,
+			))
+			return nil
 		}
 
-		if err != nil {
-			slog.Debug("failed to decode file for cleanup", "file", path, "error", err)
+		if closeErr != nil {
+			errs = append(errs, fmt.Errorf("close %s: %w", path, closeErr))
 			return nil
 		}
 
 		// Delete if expired
 		if !entry.Expiry.IsZero() && entry.Expiry.Before(cutoff) {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				slog.Debug("failed to remove expired file", "file", path, "error", err)
-				return nil
+				errs = append(errs, fmt.Errorf("remove %s: %w", path, err))
+			} else {
+				deleted++
 			}
-			deleted++
 		}
 
 		return nil
 	})
-	if err != nil {
-		return deleted, fmt.Errorf("walk directory: %w", err)
+
+	if walkErr != nil {
+		errs = append(errs, fmt.Errorf("walk directory: %w", walkErr))
 	}
 
-	if deleted > 0 {
-		slog.Info("cleaned up expired file entries", "count", deleted, "dir", p.Dir)
-	}
-	return deleted, nil
+	return deleted, errors.Join(errs...)
 }
 
 // Flush removes all entries from the file-based cache.
-// Returns the number of entries removed and any error.
+// Returns the number of entries removed and any errors encountered.
 func (p *persister[K, V]) Flush(ctx context.Context) (int, error) {
 	n := 0
-	err := filepath.Walk(p.Dir, func(path string, fi os.FileInfo, err error) error {
+	var errs []error
+
+	walkErr := filepath.Walk(p.Dir, func(path string, fi os.FileInfo, err error) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 		if err != nil {
-			slog.Debug("error walking cache dir during flush", "path", path, "error", err)
+			errs = append(errs, fmt.Errorf("walk %s: %w", path, err))
 			return nil
 		}
 		if fi.IsDir() || filepath.Ext(fi.Name()) != ".gob" {
 			return nil
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove file during flush", "file", path, "error", err)
-			return nil
+			errs = append(errs, fmt.Errorf("remove %s: %w", path, err))
+		} else {
+			n++
 		}
-		n++
 		return nil
 	})
-	if err != nil {
-		return n, fmt.Errorf("walk directory: %w", err)
+
+	if walkErr != nil {
+		errs = append(errs, fmt.Errorf("walk directory: %w", walkErr))
 	}
 
 	p.subdirsMu.Lock()
 	p.subdirsMade = make(map[string]bool)
 	p.subdirsMu.Unlock()
 
-	if n > 0 {
-		slog.Info("flushed file cache", "count", n, "dir", p.Dir)
-	}
-	return n, nil
+	return n, errors.Join(errs...)
 }
 
 // Len returns the number of entries in the file-based cache.
 func (p *persister[K, V]) Len(ctx context.Context) (int, error) {
 	n := 0
-	err := filepath.Walk(p.Dir, func(path string, fi os.FileInfo, err error) error {
+	var errs []error
+
+	walkErr := filepath.Walk(p.Dir, func(_ string, fi os.FileInfo, err error) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 		if err != nil {
-			slog.Debug("error walking cache dir during len", "path", path, "error", err)
+			errs = append(errs, err)
 			return nil
 		}
 		if fi.IsDir() || filepath.Ext(fi.Name()) != ".gob" {
@@ -518,10 +525,12 @@ func (p *persister[K, V]) Len(ctx context.Context) (int, error) {
 		n++
 		return nil
 	})
-	if err != nil {
-		return n, fmt.Errorf("walk directory: %w", err)
+
+	if walkErr != nil {
+		errs = append(errs, fmt.Errorf("walk directory: %w", walkErr))
 	}
-	return n, nil
+
+	return n, errors.Join(errs...)
 }
 
 // Close cleans up resources.

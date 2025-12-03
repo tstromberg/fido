@@ -202,7 +202,9 @@ func TestPersistentCache_Basic(t *testing.T) {
 	}
 
 	// Delete should remove from persistence
-	cache.Delete(ctx, "key1")
+	if err := cache.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("cache.Delete: %v", err)
+	}
 
 	_, _, found, err = store.Load(ctx, "key1")
 	if err != nil {
@@ -301,7 +303,8 @@ func TestPersistentCache_SetAsync(t *testing.T) {
 	defer func() { _ = cache.Close() }() //nolint:errcheck // Test cleanup
 
 	// SetAsync should not block but value should be available immediately
-	if err := cache.SetAsync(ctx, "key1", 42, 0); err != nil {
+	errCh, err := cache.SetAsync(ctx, "key1", 42, 0)
+	if err != nil {
 		t.Fatalf("SetAsync: %v", err)
 	}
 
@@ -314,8 +317,10 @@ func TestPersistentCache_SetAsync(t *testing.T) {
 		t.Error("key1 should be available immediately after SetAsync")
 	}
 
-	// Give async persistence time to complete
-	time.Sleep(50 * time.Millisecond)
+	// Wait for async persistence to complete
+	if err := <-errCh; err != nil {
+		t.Fatalf("SetAsync persistence: %v", err)
+	}
 
 	// Should also be persisted
 	val, _, found, err = store.Load(ctx, "key1")
@@ -372,19 +377,25 @@ func TestPersistentCache_Errors(t *testing.T) {
 		t.Error("key1 should be in memory even though persistence failed")
 	}
 
-	// SetAsync handles persistence errors gracefully (logs but doesn't return error)
+	// SetAsync returns error channel for persistence errors
 	store.failSet = true
-	if err := cache.SetAsync(ctx, "key3", 300, 0); err != nil {
-		t.Fatalf("SetAsync should not fail even when persistence fails: %v", err)
+	errCh, err := cache.SetAsync(ctx, "key3", 300, 0)
+	if err != nil {
+		t.Fatalf("SetAsync should not fail synchronously: %v", err)
 	}
 
-	// Value should be in memory
+	// Value should be in memory immediately
 	val, found, err = cache.Get(ctx, "key3")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if !found || val != 300 {
 		t.Error("key3 should be in memory after SetAsync")
+	}
+
+	// Persistence error should come through the channel
+	if err := <-errCh; err == nil {
+		t.Error("SetAsync should report persistence error through channel")
 	}
 
 	// Get should work from memory even if persistence fails
@@ -429,11 +440,14 @@ func TestPersistentCache_Delete_Errors(t *testing.T) {
 
 	// Now make persistence delete fail
 	store.failSet = true // failSet affects Delete too in mock
-	cache.Delete(ctx, "key1")
+	err = cache.Delete(ctx, "key1")
+	if err == nil {
+		t.Error("Delete should return error when persistence fails")
+	}
 
 	// Note: Even though persistence delete failed, key is deleted from memory.
 	// However, Get will load it back from persistence since it's still there.
-	// This tests graceful degradation - memory is cleaned up even if persistence fails.
+	// This tests that memory is always cleaned even if persistence fails.
 	val2, found2, err := cache.Get(ctx, "key1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -443,12 +457,11 @@ func TestPersistentCache_Delete_Errors(t *testing.T) {
 		t.Logf("key1 found from persistence after failed delete (expected): %v, %v", val2, found2)
 	}
 
-	// Verify the delete persistence error path is exercised
-	// by checking it was attempted (log shows "persistence delete failed")
-
-	// Delete with invalid key (using empty string which mock store will reject)
-	cache.Delete(ctx, "")
-	// Should not panic
+	// Delete with invalid key should return error
+	err = cache.Delete(ctx, "")
+	if err == nil {
+		t.Error("Delete with empty key should return error")
+	}
 }
 
 func TestPersistentCache_Get_InvalidKey(t *testing.T) {
@@ -487,10 +500,10 @@ func TestPersistentCache_Get_PersistenceLoadError(t *testing.T) {
 	// Make persistence Load fail
 	store.failGet = true
 
-	// Get should handle error gracefully
+	// Get should return error on persistence failure
 	_, found, err := cache.Get(ctx, "key1")
-	if err != nil {
-		t.Errorf("Get should not return error on persistence failure: %v", err)
+	if err == nil {
+		t.Error("Get should return error on persistence failure")
 	}
 	if found {
 		t.Error("key should not be found when persistence fails")
@@ -855,13 +868,23 @@ func TestPersistentCache_SetAsync_VariadicTTL(t *testing.T) {
 	defer func() { _ = cache.Close() }() //nolint:errcheck // Test cleanup
 
 	// SetAsync without TTL - uses default
-	if err := cache.SetAsync(ctx, "async-default", 1); err != nil {
+	errCh1, err := cache.SetAsync(ctx, "async-default", 1)
+	if err != nil {
 		t.Fatalf("SetAsync: %v", err)
 	}
 
 	// SetAsync with explicit TTL
-	if err := cache.SetAsync(ctx, "async-explicit", 2, 5*time.Minute); err != nil {
+	errCh2, err := cache.SetAsync(ctx, "async-explicit", 2, 5*time.Minute)
+	if err != nil {
 		t.Fatalf("SetAsync: %v", err)
+	}
+
+	// Wait for persistence
+	if err := <-errCh1; err != nil {
+		t.Fatalf("SetAsync persistence: %v", err)
+	}
+	if err := <-errCh2; err != nil {
+		t.Fatalf("SetAsync persistence: %v", err)
 	}
 
 	// Both should be in memory immediately

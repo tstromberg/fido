@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/codeGROOVE-dev/bdcache"
@@ -47,8 +46,6 @@ func New[K comparable, V any](ctx context.Context, cacheID, addr string) (bdcach
 		client.Close()
 		return nil, fmt.Errorf("valkey ping failed: %w", err)
 	}
-
-	slog.Debug("initialized valkey persistence", "addr", addr, "prefix", cacheID)
 
 	return &persister[K, V]{
 		client: client,
@@ -178,7 +175,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 		defer close(entryCh)
 		defer close(errCh)
 
-		loaded := 0
+		sent := 0
 		pattern := p.prefix + "*"
 
 		// Use SCAN to iterate over keys
@@ -205,8 +202,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 			// Load each key
 			for _, vk := range scanResp.Elements {
 				// Check limit
-				if limit > 0 && loaded >= limit {
-					slog.Info("loaded cache entries from valkey", "loaded", loaded)
+				if limit > 0 && sent >= limit {
 					return
 				}
 
@@ -221,18 +217,11 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 				// Parse value
 				data, err := resps[0].ToString()
 				if err != nil {
-					if valkey.IsValkeyNil(err) {
-						continue // Key was deleted between SCAN and GET
-					}
-					slog.Warn("failed to get value from valkey", "key", vk, "error", err)
-					continue
+					continue // Key was deleted or error
 				}
 
 				var value V
 				if err := json.Unmarshal([]byte(data), &value); err != nil {
-					slog.Warn("failed to unmarshal value from valkey",
-						"key", vk,
-						"error", err)
 					continue
 				}
 
@@ -250,10 +239,6 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 					// For string keys, try direct conversion
 					sk, ok := any(ks).(K)
 					if !ok {
-						slog.Warn("failed to parse key from valkey",
-							"keyStr", ks,
-							"expectedType", fmt.Sprintf("%T", key),
-							"error", err)
 						continue
 					}
 					key = sk
@@ -265,7 +250,7 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 					Expiry:    expiry,
 					UpdatedAt: time.Now(), // Valkey doesn't track update time
 				}
-				loaded++
+				sent++
 			}
 
 			// Check if we're done scanning
@@ -274,23 +259,15 @@ func (p *persister[K, V]) LoadRecent(ctx context.Context, limit int) (<-chan bdc
 				break
 			}
 		}
-
-		slog.Info("loaded cache entries from valkey", "loaded", loaded)
 	}()
 
 	return entryCh, errCh
 }
 
 // Cleanup removes expired entries from Valkey.
-// Valkey handles expiration automatically via TTL, so this is mostly a no-op.
-// However, we scan for keys without TTL that have expiry in the past based on maxAge.
+// Valkey handles expiration automatically via TTL, so this is a no-op.
 func (*persister[K, V]) Cleanup(_ context.Context, _ time.Duration) (int, error) {
-	// Valkey automatically handles TTL expiration, so this is primarily for
-	// keys that might have been stored without TTL but should be cleaned up
-	// based on maxAge. In practice, if Store() always sets TTL correctly,
-	// this will find nothing to clean.
-
-	slog.Debug("valkey cleanup called, but TTL handles expiration automatically")
+	// Valkey automatically handles TTL expiration
 	return 0, nil
 }
 
@@ -316,9 +293,7 @@ func (p *persister[K, V]) Flush(ctx context.Context) (int, error) {
 
 		if len(scan.Elements) > 0 {
 			del := p.client.B().Del().Key(scan.Elements...).Build()
-			if c, err := p.client.Do(ctx, del).AsInt64(); err != nil {
-				slog.Warn("failed to delete keys during flush", "error", err)
-			} else {
+			if c, err := p.client.Do(ctx, del).AsInt64(); err == nil {
 				n += int(c)
 			}
 		}
@@ -329,9 +304,6 @@ func (p *persister[K, V]) Flush(ctx context.Context) (int, error) {
 		}
 	}
 
-	if n > 0 {
-		slog.Info("flushed valkey cache", "count", n, "prefix", p.prefix)
-	}
 	return n, nil
 }
 
