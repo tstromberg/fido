@@ -179,14 +179,11 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		capacity = 16384 // 2^14, divides evenly by 16 shards
 	}
 
-	// Calculate number of shards using tiered approach:
-	// - Small caches (<64K): prioritize concurrency with smaller shards (256 entries min)
-	// - Large caches (>=64K): prioritize S3-FIFO effectiveness (4096 entries min)
-	// Round down to nearest power of 2 for fast modulo via bitwise AND
-	minEntriesPerShard := 4096
-	if capacity < 65536 {
-		minEntriesPerShard = 256
-	}
+	// Use 1024 min entries per shard to balance concurrency with hash variance.
+	// With fewer entries per shard, statistical variance causes capacity loss
+	// (e.g., 256/shard loses ~2%, 1024/shard loses ~0.6%).
+	// Round down to nearest power of 2 for fast modulo via bitwise AND.
+	minEntriesPerShard := 1024
 	numShards := capacity / minEntriesPerShard
 	if numShards < 1 {
 		numShards = 1
@@ -220,15 +217,11 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		c.keyIsString = true
 	}
 
-	// Auto-tune ratios based on capacity.
 	// S3-FIFO paper recommends small queue at 10% of total capacity.
-	// We use a small scaling factor for larger caches (up to 20%).
+	// Ghost queue at 19% provides optimal balance for varied workloads.
 	var smallRatio, ghostRatio float64
-	smallRatio = 0.10 + 0.10*(float64(capacity)/250000.0)
-	if smallRatio > 0.20 {
-		smallRatio = 0.20
-	}
-	ghostRatio = 2.5 // Constant 250% ghost tracking
+	smallRatio = 0.10
+	ghostRatio = 0.19
 
 	// Prepare hasher for Bloom filter
 	var hasher func(K) uint64
@@ -534,20 +527,15 @@ func (s *shard[K, V]) delete(key K) {
 }
 
 // evictFromSmall evicts an entry from the small queue.
+// Items accessed more than once (freq > 1) are promoted to Main,
+// items with freq <= 1 are evicted to ghost queue.
 func (s *shard[K, V]) evictFromSmall() {
-	// Adaptive threshold: Small caches need stricter admission (require more hits)
-	// Large caches can afford to admit items with fewer hits.
-	threshold := int32(1)
-	if s.capacity < 100000 {
-		threshold = 2
-	}
-
 	for s.small.len > 0 {
 		ent := s.small.front()
 		s.small.remove(ent)
 
-		// Check if accessed since last eviction attempt
-		if ent.freq.Load() <= threshold {
+		// Check if accessed more than once (freq > 1 to promote)
+		if ent.freq.Load() <= 1 {
 			// Not accessed enough - evict and track in ghost
 			delete(s.entries, ent.key)
 			s.addToGhost(ent.key)
@@ -555,8 +543,8 @@ func (s *shard[K, V]) evictFromSmall() {
 			return
 		}
 
-		// Accessed - promote to Main queue
-		// Reset frequency per S3-FIFO paper: entry must prove itself in Main
+		// Accessed more than once - promote to Main queue
+		// Reset frequency: entry must prove itself in Main
 		ent.freq.Store(0)
 		ent.inSmall = false
 		s.main.pushBack(ent)
@@ -564,6 +552,7 @@ func (s *shard[K, V]) evictFromSmall() {
 }
 
 // evictFromMain evicts an entry from the main queue.
+// Per S3-FIFO paper: evicted items from Main are NOT added to ghost queue.
 func (s *shard[K, V]) evictFromMain() {
 	for s.main.len > 0 {
 		ent := s.main.front()
@@ -572,9 +561,8 @@ func (s *shard[K, V]) evictFromMain() {
 		// Check if accessed since last eviction attempt
 		f := ent.freq.Load()
 		if f == 0 {
-			// Not accessed - evict
+			// Not accessed - evict (no ghost tracking per S3-FIFO)
 			delete(s.entries, ent.key)
-			s.addToGhost(ent.key)
 			s.putEntry(ent)
 			return
 		}
