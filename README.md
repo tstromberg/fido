@@ -8,9 +8,9 @@
 
 <br clear="right">
 
-Stupid fast in-memory Go cache with optional L2 persistence layer.
+sfcache is the fastest in-memory cache for Go. Need multi-tier persistence? We have it. Need thundering herd protection? We've got that too.
 
-Designed for persistently caching API requests in an unreliable environment, this cache has something for everyone.
+Designed for persistently caching API requests in an unreliable environment, this cache has an abundance of production-ready features:
 
 ## Features
 
@@ -40,7 +40,7 @@ cache.Set("answer", 42)
 val, found := cache.Get("answer")
 ```
 
-or with local file persistence to survive restarts:
+Or as a multi-tier cache with local persistence to survive restarts:
 
 ```go
 import (
@@ -55,7 +55,7 @@ cache.SetAsync(ctx, "user:123", user) // Don't wait for the key to persist
 cache.Store.Len(ctx)                  // Access persistence layer directly
 ```
 
-A persistent cache suitable for Cloud Run or local development; uses Cloud Datastore if available
+How about a persistent cache suitable for Cloud Run or local development? This uses Cloud DataStore if available, local files if not:
 
 ```go
 import "github.com/codeGROOVE-dev/sfcache/pkg/persist/cloudrun"
@@ -66,34 +66,34 @@ cache, _ := sfcache.NewTiered[string, User](p)
 
 ## Performance against the Competition
 
-sfcache prioritizes high hit-rates and low read latency, but it's excellent all around. Run `make bench` to see the results for yourself:
+sfcache prioritizes high hit-rates and low read latency. We have our own built in `make bench` that asserts cache dominance:
 
 ```
 >>> TestLatencyNoEviction: Latency - No Evictions (Set cycles within cache size) (go test -run=TestLatencyNoEviction -v)
 | Cache         | Get ns/op | Get B/op | Get allocs | Set ns/op | Set B/op | Set allocs |
 |---------------|-----------|----------|------------|-----------|----------|------------|
-| sfcache       |       7.0 |        0 |          0 |      21.0 |        0 |          0 |
-| lru           |      21.0 |        0 |          0 |      21.0 |        0 |          0 |
-| ristretto     |      32.0 |       14 |          0 |      76.0 |      121 |          4 |
-| otter         |      34.0 |        0 |          0 |     137.0 |       51 |          1 |
-| freecache     |      57.0 |        8 |          1 |      48.0 |        0 |          0 |
-| tinylfu       |      71.0 |        0 |          0 |     108.0 |      168 |          3 |
+| sfcache       |       7.0 |        0 |          0 |      23.0 |        0 |          0 |
+| lru           |      23.0 |        0 |          0 |      23.0 |        0 |          0 |
+| ristretto     |      28.0 |       13 |          0 |      77.0 |      118 |          3 |
+| otter         |      34.0 |        0 |          0 |     160.0 |       51 |          1 |
+| freecache     |      74.0 |        8 |          1 |      53.0 |        0 |          0 |
+| tinylfu       |      80.0 |        0 |          0 |     110.0 |      168 |          3 |
 
-- 🔥 Get: 200% better than next best (lru)
+- 🔥 Get: 229% better than next best (lru)
 - 🔥 Set: 0.000% better than next best (lru)
 
 >>> TestLatencyWithEviction: Latency - With Evictions (Set uses 20x unique keys) (go test -run=TestLatencyWithEviction -v)
 | Cache         | Get ns/op | Get B/op | Get allocs | Set ns/op | Set B/op | Set allocs |
 |---------------|-----------|----------|------------|-----------|----------|------------|
-| sfcache       |       8.0 |        0 |          0 |      79.0 |        0 |          0 |
-| lru           |      21.0 |        0 |          0 |      80.0 |       80 |          1 |
-| ristretto     |      30.0 |       13 |          0 |      74.0 |      119 |          3 |
-| otter         |      34.0 |        0 |          0 |     175.0 |       60 |          1 |
-| freecache     |      58.0 |        8 |          1 |      94.0 |        1 |          0 |
-| tinylfu       |      73.0 |        0 |          0 |     108.0 |      168 |          3 |
+| sfcache       |       7.0 |        0 |          0 |      94.0 |        0 |          0 |
+| lru           |      24.0 |        0 |          0 |      83.0 |       80 |          1 |
+| ristretto     |      31.0 |       14 |          0 |      73.0 |      119 |          3 |
+| otter         |      34.0 |        0 |          0 |     176.0 |       61 |          1 |
+| freecache     |      69.0 |        8 |          1 |     102.0 |        1 |          0 |
+| tinylfu       |      79.0 |        0 |          0 |     115.0 |      168 |          3 |
 
-- 🔥 Get: 162% better than next best (lru)
-- 💧 Set: 6.8% worse than best (ristretto)
+- 🔥 Get: 243% better than next best (lru)
+- 💧 Set: 29% worse than best (ristretto)
 
 >>> TestZipfThroughput1: Zipf Throughput (1 thread) (go test -run=TestZipfThroughput1 -v)
 
@@ -101,14 +101,14 @@ sfcache prioritizes high hit-rates and low read latency, but it's excellent all 
 
 | Cache         | QPS        |
 |---------------|------------|
-| sfcache       |   98.80M   |
-| lru           |   47.40M   |
-| tinylfu       |   20.10M   |
-| freecache     |   15.59M   |
-| otter         |   13.37M   |
-| ristretto     |   11.41M   |
+| sfcache       |  100.26M   |
+| lru           |   44.58M   |
+| tinylfu       |   18.42M   |
+| freecache     |   14.07M   |
+| otter         |   13.52M   |
+| ristretto     |   11.32M   |
 
-- 🔥 Throughput: 108% faster than next best (lru)
+- 🔥 Throughput: 125% faster than next best (lru)
 
 >>> TestZipfThroughput16: Zipf Throughput (16 threads) (go test -run=TestZipfThroughput16 -v)
 
@@ -116,14 +116,14 @@ sfcache prioritizes high hit-rates and low read latency, but it's excellent all 
 
 | Cache         | QPS        |
 |---------------|------------|
-| sfcache       |   42.18M   |
-| freecache     |   15.08M   |
-| ristretto     |   14.10M   |
-| otter         |   10.70M   |
-| lru           |    6.03M   |
-| tinylfu       |    4.21M   |
+| sfcache       |   36.46M   |
+| freecache     |   15.00M   |
+| ristretto     |   13.47M   |
+| otter         |   10.75M   |
+| lru           |    5.87M   |
+| tinylfu       |    4.19M   |
 
-- 🔥 Throughput: 180% faster than next best (freecache)
+- 🔥 Throughput: 143% faster than next best (freecache)
 
 >>> TestMetaTrace: Meta Trace Hit Rate (10M ops) (go test -run=TestMetaTrace -v)
 
@@ -131,14 +131,14 @@ sfcache prioritizes high hit-rates and low read latency, but it's excellent all 
 
 | Cache         | 50K cache | 100K cache |
 |---------------|-----------|------------|
-| sfcache       |   68.53%  |   76.34%   |
-| otter         |   41.37%  |   56.14%   |
-| ristretto     |   40.35%  |   48.95%   |
+| sfcache       |   71.16%  |   78.30%   |
+| otter         |   41.12%  |   56.34%   |
+| ristretto     |   40.35%  |   48.99%   |
 | tinylfu       |   53.70%  |   54.79%   |
 | freecache     |   56.86%  |   65.52%   |
 | lru           |   65.21%  |   74.22%   |
 
-- 🔥 Meta trace: 2.9% better than next best (lru)
+- 🔥 Meta trace: 5.5% better than next best (lru)
 
 >>> TestHitRate: Zipf Hit Rate (go test -run=TestHitRate -v)
 
@@ -146,17 +146,17 @@ sfcache prioritizes high hit-rates and low read latency, but it's excellent all 
 
 | Cache         | Size=1% | Size=2.5% | Size=5% |
 |---------------|---------|-----------|---------|
-| sfcache       |  64.41% |    69.24% |  72.57% |
-| otter         |  62.28% |    67.81% |  71.42% |
-| ristretto     |  34.87% |    41.25% |  46.49% |
+| sfcache       |  63.80% |    68.71% |  71.84% |
+| otter         |  61.77% |    67.67% |  71.33% |
+| ristretto     |  34.91% |    41.23% |  46.58% |
 | tinylfu       |  63.83% |    68.25% |  71.56% |
-| freecache     |  56.65% |    57.75% |  63.39% |
+| freecache     |  56.65% |    57.84% |  63.39% |
 | lru           |  57.33% |    64.55% |  69.92% |
 
-- 🔥 Hit rate: 1.3% better than next best (tinylfu)
+- 🔥 Hit rate: 0.34% better than next best (tinylfu)
 ```
 
-Cache performance is a game of balancing trade-offs. There will be workloads where other cache implementations are better, but nobody blends speed and persistence like we do.
+Want even more comprehensive benchmarks? See https://github.com/tstromberg/gocachemark where we win the top score.
 
 ## Implementation Notes
 
