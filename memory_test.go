@@ -103,13 +103,11 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 
 	// Concurrent readers
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 100 {
 				cache.Get(j)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -579,9 +577,7 @@ func TestMemoryCache_GetSet_IntKeys(t *testing.T) {
 	// Test thundering herd with int keys (uses different flightShard path)
 	var wg sync.WaitGroup
 	for i := range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			// All goroutines request the same key
 			val, err := cache.GetSet(123, loader)
 			if err != nil {
@@ -590,7 +586,7 @@ func TestMemoryCache_GetSet_IntKeys(t *testing.T) {
 			if val != 42 {
 				t.Errorf("GetSet value = %d; want 42", val)
 			}
-		}()
+		})
 		// Stagger slightly to ensure overlap
 		if i%10 == 0 {
 			time.Sleep(time.Millisecond)

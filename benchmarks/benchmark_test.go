@@ -292,10 +292,7 @@ func hitRateTinyLFU(keys []int, cacheSize int) float64 {
 }
 
 func hitRateFreecache(keys []int, cacheSize int) float64 {
-	cacheBytes := cacheSize * 24
-	if cacheBytes < 512*1024 {
-		cacheBytes = 512 * 1024
-	}
+	cacheBytes := max(cacheSize*24, 512*1024)
 	cache := freecache.NewCache(cacheBytes)
 	// Pre-compute keys and values to avoid conversion overhead affecting hit rate measurement
 	precomputedKeys := make([][]byte, hitRateKeySpace)
@@ -755,9 +752,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 			cache.Set(i, i)
 		}
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -773,7 +768,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 
 	case "otter":
@@ -782,9 +777,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 			cache.Set(i, i)
 		}
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -800,7 +793,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 
 	case "ristretto":
@@ -814,9 +807,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 		}
 		ristrettoCache.Wait()
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -832,7 +823,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 
 	case "lru":
@@ -841,9 +832,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 			cache.Add(i, i)
 		}
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -859,7 +848,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 
 	case "tinylfu":
@@ -870,9 +859,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 			cache.Set(&tinylfu.Item{Key: keysAsStrings[i], Value: i})
 		}
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -888,7 +875,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 
 	case "freecache":
@@ -902,9 +889,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 			cache.Set(keysAsBytes[i], vals[i], 0)
 		}
 		for range threads {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; ; {
 					for range opsBatchSize {
 						key := keys[i%workloadLen]
@@ -920,7 +905,7 @@ func measureZipfQPS(cacheName string, threads int, keys []int) float64 {
 						return
 					}
 				}
-			}()
+			})
 		}
 	}
 

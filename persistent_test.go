@@ -783,13 +783,11 @@ func TestTieredCache_Concurrent(t *testing.T) {
 
 	// Concurrent readers
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 100 {
 				_, _, _ = cache.Get(ctx, j) //nolint:errcheck // Test concurrent access
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

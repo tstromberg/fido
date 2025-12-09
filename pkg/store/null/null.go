@@ -24,7 +24,7 @@ func (*Store[K, V]) ValidateKey(_ K) error {
 
 // Get always returns not found.
 //
-//nolint:revive // function-result-limit - required by Store interface
+//nolint:revive // function-result-limit: required by Store interface
 func (*Store[K, V]) Get(_ context.Context, _ K) (value V, expiry time.Time, found bool, err error) {
 	var zero V
 	return zero, time.Time{}, false, nil

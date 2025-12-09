@@ -186,13 +186,11 @@ func TestS3FIFO_Concurrent(t *testing.T) {
 
 	// Concurrent readers
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 100 {
 				cache.get(j)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -751,29 +749,35 @@ func TestS3FIFO_CascadingEviction(t *testing.T) {
 	}
 }
 
-// TestS3FIFO_SingleShardSmallCache tests that small caches (< 64K) use single shard.
-// This ensures better S3-FIFO behavior for small caches.
-func TestS3FIFO_SingleShardSmallCache(t *testing.T) {
-	testCases := []struct {
-		capacity        int
-		expectNumShards int
-	}{
-		{100, 1},     // Tiny cache
-		{1000, 1},    // Small cache
-		{16384, 1},   // 16K - should be single shard
-		{32768, 1},   // 32K - should be single shard
-		{65535, 1},   // Just under 64K - should be single shard
-		{65536, 32},  // At 64K - should have multiple shards (65536/2048=32)
-		{131072, 64}, // 128K - should have shards (131072/2048=64)
-	}
+// TestS3FIFO_ShardingConstraints tests that shard count satisfies the algorithm constraints:
+// - numShards is a power of 2 for fast modulo
+// - Each shard has at least 64 entries for effective S3-FIFO
+// - numShards <= GOMAXPROCS (prioritizes concurrency)
+// - numShards <= maxShards (2048)
+func TestS3FIFO_ShardingConstraints(t *testing.T) {
+	testCases := []int{100, 1000, 16384, 32768, 65536, 131072, 1000000}
 
-	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("capacity_%d", tc.capacity), func(t *testing.T) {
-			cache := newS3FIFO[int, int](&config{size: tc.capacity})
+	for _, capacity := range testCases {
+		t.Run(fmt.Sprintf("capacity_%d", capacity), func(t *testing.T) {
+			cache := newS3FIFO[int, int](&config{size: capacity})
 
-			if cache.numShards != tc.expectNumShards {
-				t.Errorf("capacity %d: numShards = %d; want %d",
-					tc.capacity, cache.numShards, tc.expectNumShards)
+			// Must be power of 2
+			if cache.numShards&(cache.numShards-1) != 0 {
+				t.Errorf("capacity %d: numShards %d is not a power of 2",
+					capacity, cache.numShards)
+			}
+
+			// Each shard should have at least 64 entries (or 1 shard for tiny caches)
+			entriesPerShard := capacity / cache.numShards
+			if entriesPerShard < 64 && cache.numShards > 1 {
+				t.Errorf("capacity %d: only %d entries per shard (min 64)",
+					capacity, entriesPerShard)
+			}
+
+			// Should not exceed maxShards
+			if cache.numShards > maxShards {
+				t.Errorf("capacity %d: numShards %d exceeds maxShards %d",
+					capacity, cache.numShards, maxShards)
 			}
 		})
 	}

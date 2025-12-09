@@ -64,7 +64,7 @@ func NewTiered[K comparable, V any](store Store[K, V], opts ...Option) (*TieredC
 // Get retrieves a value from the cache.
 // It first checks the memory cache, then falls back to persistence.
 //
-//nolint:gocritic // unnamedResult - public API signature is intentionally clear without named returns
+//nolint:gocritic // unnamedResult: public API signature is intentionally clear
 func (c *TieredCache[K, V]) Get(ctx context.Context, key K) (V, bool, error) {
 	// Check memory first
 	if val, ok := c.memory.get(key); ok {

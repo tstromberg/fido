@@ -186,8 +186,10 @@ linters:
           arguments: [10]
         - name: flag-parameter # fixes are difficult
           disabled: true
-        - name: confusing-naming # false positives
+        - name: bare-return
           disabled: true
+        - name: confusing-naming
+          disabled: true # cache libraries naturally use same method names (Get/Set) across types
 
     rowserrcheck:
       # database/sql is always checked.

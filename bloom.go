@@ -26,20 +26,12 @@ func newBloomFilter(capacity int, fpRate float64) *bloomFilter {
 	m := float64(capacity) * -math.Log(fpRate) / (ln2 * ln2)
 
 	// Round m up to nearest power of 2 for fast modulo
-	mInt := nextPowerOf2(uint64(m))
-	if mInt < 64 {
-		mInt = 64
-	}
+	mInt := max(nextPowerOf2(uint64(m)), 64)
 
 	// Calculate k
 	// k = (m / n) * ln(2)
-	k := int(float64(mInt) / float64(capacity) * ln2)
-	if k < 1 {
-		k = 1
-	}
-	if k > 16 {
-		k = 16 // Cap k to avoid too many memory accesses
-	}
+	// Clamp k between 1 and 16 (cap to avoid too many memory accesses)
+	k := min(max(int(float64(mInt)/float64(capacity)*ln2), 1), 16)
 
 	return &bloomFilter{
 		data: make([]uint64, mInt/64),

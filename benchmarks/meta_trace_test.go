@@ -319,10 +319,7 @@ func runMetaTraceTinyLFU(ops []traceOp, cacheSize int) float64 {
 
 func runMetaTraceFreecache(ops []traceOp, cacheSize int) float64 {
 	// freecache uses bytes, estimate ~32 bytes per entry (key + value + overhead)
-	cacheBytes := cacheSize * 32
-	if cacheBytes < 512*1024 {
-		cacheBytes = 512 * 1024 // minimum 512KB
-	}
+	cacheBytes := max(cacheSize*32, 512*1024) // minimum 512KB
 	cache := freecache.NewCache(cacheBytes)
 
 	var hits, misses int64

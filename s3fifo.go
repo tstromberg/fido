@@ -144,16 +144,6 @@ func (l *entryList[K, V]) remove(e *entry[K, V]) {
 	l.len--
 }
 
-func (l *entryList[K, V]) front() *entry[K, V] {
-	return l.head
-}
-
-func (l *entryList[K, V]) init() {
-	l.head = nil
-	l.tail = nil
-	l.len = 0
-}
-
 // timeToNano converts a time.Time to Unix nanoseconds, returning 0 for zero time.
 func timeToNano(t time.Time) int64 {
 	if t.IsZero() {
@@ -261,16 +251,10 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 // newShard creates a new S3-FIFO shard with the given capacity.
 func newShard[K comparable, V any](capacity int, smallRatio, ghostRatio float64, hasher func(K) uint64) *shard[K, V] {
 	// Small queue: recommended 10%
-	smallCap := int(float64(capacity) * smallRatio)
-	if smallCap < 1 {
-		smallCap = 1
-	}
+	smallCap := max(int(float64(capacity)*smallRatio), 1)
 
 	// Ghost capacity: controls rotation frequency
-	ghostCap := int(float64(capacity) * ghostRatio)
-	if ghostCap < 1 {
-		ghostCap = 1
-	}
+	ghostCap := max(int(float64(capacity)*ghostRatio), 1)
 
 	s := &shard[K, V]{
 		capacity:    capacity,
@@ -539,7 +523,7 @@ func (s *shard[K, V]) evictFromSmall() {
 	mainCap := (s.capacity * 9) / 10 // 90% for main queue
 
 	for s.small.len > 0 {
-		ent := s.small.front()
+		ent := s.small.head
 		s.small.remove(ent)
 
 		// Check if accessed more than once (freq > 1 to promote)
@@ -579,7 +563,7 @@ func (s *shard[K, V]) evictFromSmall() {
 // Per S3-FIFO paper: evicted items from Main are NOT added to ghost queue.
 func (s *shard[K, V]) evictFromMain() {
 	for s.main.len > 0 {
-		ent := s.main.front()
+		ent := s.main.head
 		s.main.remove(ent)
 
 		// Check if accessed since last eviction attempt
@@ -625,8 +609,8 @@ func (s *shard[K, V]) flush() int {
 
 	n := len(s.entries)
 	s.entries = make(map[K]*entry[K, V], s.capacity)
-	s.small.init()
-	s.main.init()
+	s.small.head, s.small.tail, s.small.len = nil, nil, 0
+	s.main.head, s.main.tail, s.main.len = nil, nil, 0
 	s.ghostActive.Reset()
 	s.ghostAging.Reset()
 	return n
