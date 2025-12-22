@@ -236,6 +236,12 @@ func (c *MemoryCache[K, V]) expiry(ttl time.Duration) time.Time {
 type config struct {
 	size       int
 	defaultTTL time.Duration
+
+	// Experimental tuning options (for benchmarking)
+	expAdaptiveSmallRatio bool // Exp1: Scale small queue ratio by cache size
+	expGhostFreqBoost     bool // Exp2: Items entering Main from ghost start with freq=1
+	expAdaptivePromotion  bool // Exp3: Lower promotion threshold under pressure
+	expWarmupBypass       bool // Exp4: Admit all items until cache is full once
 }
 
 func defaultConfig() *config {
@@ -261,5 +267,49 @@ func Size(n int) Option {
 func TTL(d time.Duration) Option {
 	return func(c *config) {
 		c.defaultTTL = d
+	}
+}
+
+// Experimental options for benchmarking - not part of public API.
+
+// ExpAdaptiveSmallRatio enables adaptive small queue sizing based on cache capacity.
+// Uses 20% for ≤32K, 15% for ≤128K, 10% for larger caches.
+func ExpAdaptiveSmallRatio() Option {
+	return func(c *config) {
+		c.expAdaptiveSmallRatio = true
+	}
+}
+
+// ExpGhostFreqBoost gives items entering Main from ghost a frequency boost (freq=1).
+// Rewards items that have proven popularity via access→evict→re-access cycle.
+func ExpGhostFreqBoost() Option {
+	return func(c *config) {
+		c.expGhostFreqBoost = true
+	}
+}
+
+// ExpAdaptivePromotion lowers the promotion threshold when small queue is under pressure.
+// Promotes items with freq>0 (instead of freq>1) when small queue is >80% full.
+func ExpAdaptivePromotion() Option {
+	return func(c *config) {
+		c.expAdaptivePromotion = true
+	}
+}
+
+// ExpWarmupBypass admits all items without eviction until cache reaches capacity once.
+// Ensures we use full capacity before making eviction decisions.
+func ExpWarmupBypass() Option {
+	return func(c *config) {
+		c.expWarmupBypass = true
+	}
+}
+
+// ExpAll enables all experimental optimizations.
+func ExpAll() Option {
+	return func(c *config) {
+		c.expAdaptiveSmallRatio = true
+		c.expGhostFreqBoost = true
+		c.expAdaptivePromotion = true
+		c.expWarmupBypass = true
 	}
 }

@@ -79,6 +79,11 @@ type s3fifo[K comparable, V any] struct {
 	keyIsInt    bool   // Fast path flag for int keys
 	keyIsInt64  bool   // Fast path flag for int64 keys
 	keyIsString bool   // Fast path flag for string keys
+
+	// Experimental flags
+	expGhostFreqBoost    bool // Exp2: Items entering Main from ghost start with freq=1
+	expAdaptivePromotion bool // Exp3: Lower promotion threshold under pressure
+	expWarmupBypass      bool // Exp4: Admit all until cache is full once
 }
 
 // shard is an independent S3-FIFO cache partition.
@@ -106,6 +111,11 @@ type shard[K comparable, V any] struct {
 
 	// Free list for reducing allocations
 	freeEntries *entry[K, V]
+
+	// Experimental state
+	expGhostFreqBoost    bool // Exp2: Items entering Main from ghost start with freq=1
+	expAdaptivePromotion bool // Exp3: Lower promotion threshold under pressure
+	warmupComplete       bool // Exp4: Set to true once cache has been full
 }
 
 // entryList is an intrusive doubly-linked list for cache entries.
@@ -182,11 +192,14 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 
 	shardCap := (capacity + nshards - 1) / nshards // ceiling division
 
-	c := &s3fifo[K, V]{
+	cache := &s3fifo[K, V]{
 		shards:    make([]*shard[K, V], nshards),
 		numShards: nshards,
 		//nolint:gosec // G115: nshards bounded by [1, maxShards]
-		shardMask: uint64(nshards - 1),
+		shardMask:            uint64(nshards - 1),
+		expGhostFreqBoost:    cfg.expGhostFreqBoost,
+		expAdaptivePromotion: cfg.expAdaptivePromotion,
+		expWarmupBypass:      cfg.expWarmupBypass,
 	}
 
 	// Detect key type at construction time to enable fast-path hash functions.
@@ -194,30 +207,43 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 	var zeroKey K
 	switch any(zeroKey).(type) {
 	case int:
-		c.keyIsInt = true
+		cache.keyIsInt = true
 	case int64:
-		c.keyIsInt64 = true
+		cache.keyIsInt64 = true
 	case string:
-		c.keyIsString = true
+		cache.keyIsString = true
 	}
 
 	// S3-FIFO paper recommends small queue at 10% of total capacity.
+	// Exp1: Adaptive small ratio - larger for smaller caches to allow more frequency accumulation.
+	var smallRatio float64
+	if cfg.expAdaptiveSmallRatio {
+		switch {
+		case capacity <= 32768: // ≤32K
+			smallRatio = 0.20
+		case capacity <= 131072: // ≤128K
+			smallRatio = 0.15
+		default:
+			smallRatio = 0.10
+		}
+	} else {
+		smallRatio = 0.10
+	}
 	// Ghost queue at 100% matches reference implementation for better hit rate.
-	const smallRatio = 0.10
 	const ghostRatio = 1.0
 
 	// Prepare hasher for Bloom filter
 	var hasher func(K) uint64
 	switch {
-	case c.keyIsInt:
+	case cache.keyIsInt:
 		hasher = func(key K) uint64 {
 			return hashInt64(int64(*(*int)(unsafe.Pointer(&key))))
 		}
-	case c.keyIsInt64:
+	case cache.keyIsInt64:
 		hasher = func(key K) uint64 {
 			return hashInt64(*(*int64)(unsafe.Pointer(&key)))
 		}
-	case c.keyIsString:
+	case cache.keyIsString:
 		hasher = func(key K) uint64 {
 			return wyhashString(*(*string)(unsafe.Pointer(&key)))
 		}
@@ -243,18 +269,21 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 	for i := range nshards {
 		smallCap := max(int(float64(shardCap)*smallRatio), 1)
 		ghostCap := max(int(float64(shardCap)*ghostRatio), 1)
-		c.shards[i] = &shard[K, V]{
-			capacity:    shardCap,
-			smallCap:    smallCap,
-			ghostCap:    ghostCap,
-			entries:     make(map[K]*entry[K, V], shardCap),
-			ghostActive: newBloomFilter(ghostCap, 0.00001),
-			ghostAging:  newBloomFilter(ghostCap, 0.00001),
-			hasher:      hasher,
+		cache.shards[i] = &shard[K, V]{
+			capacity:             shardCap,
+			smallCap:             smallCap,
+			ghostCap:             ghostCap,
+			entries:              make(map[K]*entry[K, V], shardCap),
+			ghostActive:          newBloomFilter(ghostCap, 0.00001),
+			ghostAging:           newBloomFilter(ghostCap, 0.00001),
+			hasher:               hasher,
+			expGhostFreqBoost:    cfg.expGhostFreqBoost,
+			expAdaptivePromotion: cfg.expAdaptivePromotion,
+			warmupComplete:       !cfg.expWarmupBypass, // If bypass disabled, consider warmup done
 		}
 	}
 
-	return c
+	return cache
 }
 
 func (s *shard[K, V]) newEntry() *entry[K, V] {
@@ -432,6 +461,18 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 	ent.value = value
 	ent.expiryNano = expiryNano
 
+	// Exp4 (Warmup Bypass): During warmup, admit everything to small queue without eviction
+	if !s.warmupComplete && s.small.len+s.main.len < s.capacity {
+		// Still warming up - just insert to small queue
+		ent.inSmall = true
+		s.small.pushBack(ent)
+		s.entries[key] = ent
+		s.mu.Unlock()
+		return
+	}
+	// Mark warmup complete once we've reached capacity
+	s.warmupComplete = true
+
 	// Lazily check ghost only if at capacity (when eviction matters)
 	// This saves 2× bloom filter checks + hash computation when cache isn't full
 	if s.small.len+s.main.len >= s.capacity {
@@ -442,6 +483,11 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 			inGhost = s.ghostAging.Contains(h)
 		}
 		ent.inSmall = !inGhost
+
+		// Exp2 (Ghost Freq Boost): Items entering Main from ghost start with freq=1
+		if !ent.inSmall && s.expGhostFreqBoost {
+			ent.freq.Store(1)
+		}
 
 		// Evict to make room
 		for s.small.len+s.main.len >= s.capacity {
@@ -499,12 +545,21 @@ func (s *shard[K, V]) delete(key K) {
 func (s *shard[K, V]) evictFromSmall() {
 	mainCap := (s.capacity * 9) / 10 // 90% for main queue
 
+	// Adaptive Promotion: Lower threshold when small queue is under pressure.
+	// Normal: need freq > 1 (2+ accesses) to promote
+	// Under pressure (>80% full): need freq > 0 (1+ access) to promote
+	// This improves hit rate on scan-resistant workloads (Wikipedia, Twitter).
+	promotionThreshold := int32(1)
+	if s.small.len > (s.smallCap*4)/5 {
+		promotionThreshold = 0
+	}
+
 	for s.small.len > 0 {
 		ent := s.small.head
 		s.small.remove(ent)
 
-		// Check if accessed more than once (freq > 1 to promote)
-		if ent.freq.Load() <= 1 {
+		// Check if accessed enough to promote (threshold may be adaptive)
+		if ent.freq.Load() <= promotionThreshold {
 			// Not accessed enough - evict and track in ghost
 			delete(s.entries, ent.key)
 
@@ -523,7 +578,7 @@ func (s *shard[K, V]) evictFromSmall() {
 			return
 		}
 
-		// Accessed more than once - promote to Main queue
+		// Accessed enough - promote to Main queue
 		// Reset frequency: entry must prove itself in Main
 		ent.freq.Store(0)
 		ent.inSmall = false
