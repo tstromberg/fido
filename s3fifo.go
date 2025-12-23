@@ -120,8 +120,8 @@ type shard[K comparable, V any] struct {
 	warmupComplete bool
 
 	// Adaptive mode detection based on ghost hit rate:
-	// - Mode 0 (scan-heavy, ghost rate < 2%): pure recency, skip ghost tracking
-	// - Mode 1 (balanced, ghost rate 2-5%): lenient promotion (freq > 0)
+	// - Mode 0 (scan-heavy, ghost rate < 1%): pure recency, skip ghost tracking
+	// - Mode 1 (balanced, ghost rate 1-5%): lenient promotion (freq > 0)
 	// - Mode 2 (frequency-heavy, ghost rate > 5%): strict promotion (freq > 1)
 	insertions            uint32
 	ghostHits             uint32
@@ -506,20 +506,20 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 			// Track ghost hits and apply frequency boost
 			if inGhost {
 				s.ghostHits++
-				// Ghost Freq Boost: Items returning from ghost start with freq=2
-				// This rewards items that proved popularity through the evict-return cycle
-				ent.freq.Store(2)
+				// Ghost Freq Boost: Items returning from ghost start with freq=1
+				// This rewards items that proved popularity, but actual re-accesses build more frequency
+				ent.freq.Store(1)
 			}
 		}
 
 		// Adaptive mode detection: check every 256 insertions after warmup
-		// Mode 0: scan-heavy (ghost rate < 2%) - pure recency, skip ghost
-		// Mode 1: balanced (ghost rate 2-5%) - lenient promotion (freq > 0)
+		// Mode 0: scan-heavy (ghost rate < 1%) - pure recency, skip ghost
+		// Mode 1: balanced (ghost rate 1-5%) - lenient promotion (freq > 0)
 		// Mode 2: frequency-heavy (ghost rate > 5%) - strict promotion (freq > 1)
 		if s.insertions >= s.adaptiveMinInsertions && s.insertions&0xFF == 0 {
 			ghostRate := s.ghostHits * 100 / s.insertions // percentage
 			switch {
-			case ghostRate < 2:
+			case ghostRate < 1:
 				s.adaptiveMode = 0 // Scan-heavy: use pure recency
 			case ghostRate < 5:
 				s.adaptiveMode = 1 // Balanced: lenient promotion
@@ -591,9 +591,9 @@ func (s *shard[K, V]) delete(key K) {
 
 // evictFromSmall evicts an entry from the small queue.
 // Promotion threshold adapts based on workload characteristics:
-// - Mode 0 (scan): always promote (pure recency)
-// - Mode 1 (balanced): need freq > 0 (one access)
-// - Mode 2 (frequency): need freq > 1 (two accesses)
+//   - Mode 0 (scan): always promote (pure recency).
+//   - Mode 1 (balanced): need freq > 0 (one access).
+//   - Mode 2 (frequency): need freq > 1 (two accesses).
 func (s *shard[K, V]) evictFromSmall() {
 	mainCap := (s.capacity * 9) / 10 // 90% for main queue
 
@@ -606,12 +606,13 @@ func (s *shard[K, V]) evictFromSmall() {
 
 		if e.freq.Load() < thresh {
 			// Not accessed enough - evict
-			delete(s.entries, e.key)
+			evictedKey := e.key
+			delete(s.entries, evictedKey)
 
 			// Track in ghost queue only if not in scan/recency mode
 			// (scan-heavy workloads don't benefit from ghost tracking)
 			if s.adaptiveMode > 0 {
-				h := s.hasher(e.key)
+				h := s.hasher(evictedKey)
 				if !s.ghostActive.Contains(h) {
 					s.ghostActive.Add(h)
 				}
