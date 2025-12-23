@@ -3,16 +3,12 @@ package multicache
 import (
 	"fmt"
 	"math/bits"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 )
-
-// debugAdaptive enables adaptive mode debug output when MULTICACHE_DEBUG=1.
-var debugAdaptive = os.Getenv("MULTICACHE_DEBUG") == "1"
 
 // wyhash constants for fast string hashing.
 const (
@@ -65,8 +61,8 @@ const maxFreq = 7
 // Each shard is an independent S3-FIFO instance with its own queues and lock.
 //
 // Algorithm per shard:
-// - Small queue (S): 10-20% of shard capacity, for new entries
-// - Main queue (M): 80-90% of shard capacity, for promoted entries
+// - Small queue (S): ~10% of shard capacity, for new entries
+// - Main queue (M): ~90% of shard capacity, for promoted entries
 // - Ghost queue (G): Tracks evicted keys (no data)
 //
 // On cache miss:
@@ -115,24 +111,12 @@ type shard[K comparable, V any] struct {
 	hasher      func(K) uint64
 
 	capacity int
-	smallCap int
 
 	// Free list for reducing allocations
 	freeEntries *entry[K, V]
 
 	// Warmup: during initial fill, admit everything without eviction checks
 	warmupComplete bool
-
-	// Adaptive mode detection based on ghost hit rate with hysteresis:
-	// - Mode 0 (scan-heavy, ghost rate < 1%): pure recency, skip ghost tracking
-	// - Mode 1 (balanced): lenient promotion (freq > 0)
-	// - Mode 2 (frequency-heavy): strict promotion (freq > 1)
-	//   Entry: ghost rate 7-12%. Stay: 5-22%. Exit: <5% or >=23%
-	// - Mode 3 (clock-like, ghost rate >= 23%): all items to main, second-chance
-	insertions            uint32
-	ghostHits             uint32
-	adaptiveMode          uint8  // 0=scan/recency, 1=balanced, 2=frequency-heavy
-	adaptiveMinInsertions uint32 // min insertions before adaptive kicks in
 
 	// Parent pointer for global capacity tracking
 	parent *s3fifo[K, V]
@@ -235,18 +219,7 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		cache.keyIsString = true
 	}
 
-	// Adaptive small queue ratio: larger for smaller caches to allow more frequency accumulation.
-	// S3-FIFO paper recommends 10%, but smaller caches need more room for frequency estimation.
-	var smallRatio float64
-	switch {
-	case capacity <= 32768: // ≤32K: 20% small queue
-		smallRatio = 0.20
-	case capacity <= 131072: // ≤128K: 15% small queue
-		smallRatio = 0.15
-	default: // >128K: 10% small queue (paper recommendation)
-		smallRatio = 0.10
-	}
-	// Ghost queue at 100% matches reference implementation for better hit rate.
+	// Ghost queue at 100% of shard capacity matches reference implementation.
 	const ghostRatio = 1.0
 
 	// Prepare hasher for Bloom filter
@@ -284,20 +257,15 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 	}
 
 	for i := range nshards {
-		smallCap := max(int(float64(shardCap)*smallRatio), 1)
 		ghostCap := max(int(float64(shardCap)*ghostRatio), 1)
-		minIns := uint32(max(shardCap, 256)) //nolint:gosec // G115: shardCap bounded by capacity/nshards
 		cache.shards[i] = &shard[K, V]{
-			capacity:              shardCap,
-			smallCap:              smallCap,
-			ghostCap:              ghostCap,
-			entries:               make(map[K]*entry[K, V], shardCap),
-			ghostActive:           newBloomFilter(ghostCap, 0.00001),
-			ghostAging:            newBloomFilter(ghostCap, 0.00001),
-			hasher:                hasher,
-			adaptiveMinInsertions: minIns,
-			adaptiveMode:          1, // Start in balanced mode
-			parent:                cache,
+			capacity:    shardCap,
+			ghostCap:    ghostCap,
+			entries:     make(map[K]*entry[K, V], shardCap),
+			ghostActive: newBloomFilter(ghostCap, 0.00001),
+			ghostAging:  newBloomFilter(ghostCap, 0.00001),
+			hasher:      hasher,
+			parent:      cache,
 		}
 	}
 
@@ -497,78 +465,10 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 	// Lazily check ghost only if at capacity (when eviction matters)
 	// This saves 2× bloom filter checks + hash computation when cache isn't full
 	if full {
-		// Track insertions for adaptive mode detection
-		s.insertions++
-
-		// In scan/recency mode (mode=0), skip ghost checks entirely
-		switch s.adaptiveMode {
-		case 0:
-			ent.inSmall = true
-		case 3:
-			// Clock mode: all items go directly to main queue with freq=1
-			// This mimics clock's second-chance behavior for high-recency workloads
-			ent.inSmall = false
-			ent.freq.Store(1)
-			// Still track ghost for mode detection
-			h := s.hasher(key)
-			if s.ghostActive.Contains(h) || s.ghostAging.Contains(h) {
-				s.ghostHits++
-			}
-		default:
-			// Check if key is in ghost (Bloom filter)
-			h := s.hasher(key)
-			inGhost := s.ghostActive.Contains(h) || s.ghostAging.Contains(h)
-			ent.inSmall = !inGhost
-
-			// Track ghost hits and apply frequency boost
-			if inGhost {
-				s.ghostHits++
-				// Ghost Freq Boost: Items returning from ghost start with freq=1
-				// This rewards items that proved popularity, but actual re-accesses build more frequency
-				ent.freq.Store(1)
-			}
-		}
-
-		// Adaptive mode detection: check every 256 insertions after warmup
-		// Mode 0: scan-heavy (ghost rate < 1%) - pure recency
-		// Mode 1: balanced - lenient promotion (freq > 0)
-		// Mode 2: frequency-heavy - strict promotion (freq > 1)
-		// Mode 3: clock-like (ghost rate >= 23%) - all items to main
-		//
-		// Hysteresis prevents oscillation: entry thresholds differ from exit.
-		// Enter mode 2: 7-12%. Stay in mode 2: 5-22%. Exit: <5% or >=23%.
-		if s.insertions >= s.adaptiveMinInsertions && s.insertions&0xFF == 0 {
-			rate := s.ghostHits * 100 / s.insertions // percentage
-			prev := s.adaptiveMode
-
-			// Apply hysteresis: current mode affects switching thresholds
-			switch {
-			case rate < 1:
-				s.adaptiveMode = 0 // Scan-heavy: use pure recency
-			case rate >= 23:
-				s.adaptiveMode = 3 // Very high recency: clock-like behavior
-			case s.adaptiveMode == 2:
-				// In mode 2: use wider band (5-22%) to prevent oscillation
-				if rate < 5 {
-					s.adaptiveMode = 1
-				}
-				// rate >= 23 handled above
-			default:
-				// Not in mode 2: use narrow entry band (7-12%)
-				if rate >= 7 && rate <= 12 {
-					s.adaptiveMode = 2
-				} else {
-					s.adaptiveMode = 1
-				}
-			}
-			if debugAdaptive && s.adaptiveMode != prev {
-				fmt.Printf("[multicache] mode %d→%d (ghost=%d%%, cap=%d)\n",
-					prev, s.adaptiveMode, rate, s.capacity)
-			}
-			// Reset counters for next period
-			s.insertions = 0
-			s.ghostHits = 0
-		}
+		// Pure S3-FIFO: check ghost and route accordingly
+		h := s.hasher(key)
+		inGhost := s.ghostActive.Contains(h) || s.ghostAging.Contains(h)
+		ent.inSmall = !inGhost
 
 		// Evict one entry to make room
 		if s.main.len > 0 && s.small.len <= s.capacity/10 {
@@ -619,37 +519,27 @@ func (s *shard[K, V]) delete(key K) {
 }
 
 // evictFromSmall evicts an entry from the small queue.
-// Promotion threshold adapts based on workload characteristics:
-//   - Mode 0 (scan): always promote (pure recency).
-//   - Mode 1 (balanced): need freq > 0 (one access).
-//   - Mode 2 (frequency): need freq > 1 (two accesses).
+// Pure S3-FIFO: promote if freq >= 2 (accessed at least twice).
 func (s *shard[K, V]) evictFromSmall() {
 	mainCap := (s.capacity * 9) / 10 // 90% for main queue
-
-	// Adaptive promotion threshold based on detected workload type
-	thresh := uint32(s.adaptiveMode) // 0, 1, or 2
 
 	for s.small.len > 0 {
 		e := s.small.head
 		s.small.remove(e)
 
-		if e.freq.Load() < thresh {
-			// Not accessed enough - evict
+		if e.freq.Load() < 2 {
+			// Not accessed enough - evict and track in ghost
 			k := e.key
 			delete(s.entries, k)
 
-			// Track in ghost queue only if not in scan/recency mode
-			// (scan-heavy workloads don't benefit from ghost tracking)
-			if s.adaptiveMode > 0 {
-				h := s.hasher(k)
-				if !s.ghostActive.Contains(h) {
-					s.ghostActive.Add(h)
-				}
-				// Rotate filters when active is full (provides approximate FIFO)
-				if s.ghostActive.entries >= s.ghostCap {
-					s.ghostAging.Reset()
-					s.ghostActive, s.ghostAging = s.ghostAging, s.ghostActive
-				}
+			h := s.hasher(k)
+			if !s.ghostActive.Contains(h) {
+				s.ghostActive.Add(h)
+			}
+			// Rotate filters when active is full (provides approximate FIFO)
+			if s.ghostActive.entries >= s.ghostCap {
+				s.ghostAging.Reset()
+				s.ghostActive, s.ghostAging = s.ghostAging, s.ghostActive
 			}
 
 			s.putEntry(e)

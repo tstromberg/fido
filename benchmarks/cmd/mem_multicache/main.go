@@ -20,8 +20,7 @@ func main() {
 	valSize := flag.Int("valSize", 1024, "value size")
 	flag.Parse()
 
-	//nolint:revive // explicit GC required for accurate memory benchmarking
-	runtime.GC()
+	runtime.GC() //nolint:revive // call-to-gc: explicit GC required for accurate memory benchmarking
 	debug.FreeOSMemory()
 
 	cache := multicache.New[string, []byte](multicache.Size(*capacity))
@@ -37,11 +36,9 @@ func main() {
 
 	keepAlive = cache
 
-	//nolint:revive // explicit GC required for accurate memory benchmarking
-	runtime.GC()
+	runtime.GC() //nolint:revive // call-to-gc: explicit GC required for accurate memory benchmarking
 	time.Sleep(100 * time.Millisecond)
-	//nolint:revive // explicit GC required for accurate memory benchmarking
-	runtime.GC()
+	runtime.GC() //nolint:revive // call-to-gc: explicit GC required for accurate memory benchmarking
 	debug.FreeOSMemory()
 
 	var mem runtime.MemStats

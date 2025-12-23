@@ -1,4 +1,4 @@
-# multicache - Adaptive Multi-Tier Cache
+# multicache - High-Performance Multi-Tier Cache
 
 <img src="media/logo-small.png" alt="multicache logo" width="256">
 
@@ -8,22 +8,15 @@
 
 <br clear="right">
 
-multicache is a high-performance cache for Go that automatically adapts to your workload. It combines **multiple eviction strategies** that switch based on access patterns, with an optional **multi-tier architecture** for persistence.
+multicache is a high-performance cache for Go implementing the **S3-FIFO** algorithm from the SOSP'23 paper ["FIFO queues are all you need for cache eviction"](https://s3fifo.com/). It combines **best-in-class hit rates**, **multi-threaded** scalability, and an optional **multi-tier architecture** for persistence.
+
+**Our philosophy**: Hit rate matters most (cache misses are expensive), then throughput (handle load), then single-threaded latency. We aim to excel at all three.
 
 ## Why "multi"?
 
-### Multiple Adaptive Strategies
+### Multi-Threaded Performance
 
-multicache monitors ghost hit rates (how often evicted keys return) and automatically selects the optimal eviction strategy:
-
-| Mode | Trigger | Strategy | Workload |
-|------|---------|----------|----------|
-| 0 | Ghost rate <1% | Pure recency | Scan-heavy (unique keys) |
-| 1 | Ghost rate 1-22% | Balanced S3-FIFO | Mixed access patterns |
-| 2 | Ghost rate 7-12% | Frequency-biased | Repeated hot keys |
-| 3 | Ghost rate ≥23% | Clock-like second-chance | High temporal locality |
-
-No tuning required - the cache learns your workload and adapts.
+Designed for high-concurrency workloads with dynamic sharding (up to 2048 shards) that scales with `GOMAXPROCS`. At 32 threads, multicache delivers **185M+ QPS** for GetOrSet operations.
 
 ### Multi-Tier Architecture
 
@@ -35,7 +28,7 @@ Stack fast in-memory caching with durable persistence:
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
-│    Memory Cache (microseconds)      │  ← L1: S3-FIFO with adaptive modes
+│    Memory Cache (microseconds)      │  ← L1: S3-FIFO eviction
 └─────────────────┬───────────────────┘
                   │ async write / sync read
 ┌─────────────────▼───────────────────┐
@@ -54,12 +47,12 @@ All backends support optional S2 or Zstd compression via [`pkg/store/compress`](
 
 ## Features
 
-- **Best-in-class performance** - 7ns reads, 100M+ QPS single-threaded
-- **Adaptive S3-FIFO eviction** - Better hit-rates than LRU ([learn more](https://s3fifo.com/))
+- **Best-in-class hit rates** - S3-FIFO beats LRU by 5%+ on real traces ([learn more](https://s3fifo.com/))
+- **Multi-threaded throughput** - 185M+ QPS at 32 threads, scales with core count
+- **Low latency** - 7ns reads, 100M+ QPS single-threaded, zero-allocation updates
 - **Thundering herd prevention** - `GetSet` deduplicates concurrent loads
 - **Per-item TTL** - Optional expiration
 - **Graceful degradation** - Cache works even if persistence fails
-- **Zero allocation updates** - Minimal GC pressure
 
 ## Usage
 
@@ -108,7 +101,7 @@ cache, _ := multicache.NewTiered(p)
 
 ## Performance against the Competition
 
-multicache prioritizes high hit-rates and low read latency. We have our own built in `make bench` that asserts cache dominance:
+multicache prioritizes **hit rate** first, **multi-threaded throughput** second, and **single-threaded latency** third—but aims to excel at all three. We have our own built in `make bench` that asserts cache dominance:
 
 ```
 >>> TestLatencyNoEviction: Latency - No Evictions (Set cycles within cache size) (go test -run=TestLatencyNoEviction -v)
@@ -202,24 +195,16 @@ Want even more comprehensive benchmarks? See https://github.com/tstromberg/gocac
 
 ## Implementation Notes
 
-### S3-FIFO Enhancements
+multicache implements the S3-FIFO algorithm from the SOSP'23 paper with these optimizations for production use:
 
-multicache implements the S3-FIFO algorithm from SOSP'23 with these optimizations:
-
-1. **Dynamic Sharding** - 1-2048 independent shards for concurrent workloads
-2. **Bloom Filter Ghosts** - Two rotating Bloom filters (vs storing keys), 10-100x less memory
-3. **Lazy Ghost Checks** - Only check ghosts at capacity, saving 5-9% latency during warmup
+1. **Dynamic Sharding** - Up to 2048 shards (capped at 2× GOMAXPROCS) for concurrent workloads
+2. **Bloom Filter Ghosts** - Two rotating Bloom filters instead of storing keys, 10-100× less memory
+3. **Lazy Ghost Checks** - Only check ghosts at capacity, saving latency during warmup
 4. **Intrusive Lists** - Zero-allocation queue operations
 5. **Fast-path Hashing** - Specialized `int`/`string` hashing via wyhash
+6. **Higher Frequency Cap** - Max freq=7 (vs paper's 3) for better hot/warm discrimination
 
-### Adaptive Mode Details
-
-Mode switching uses **hysteresis** to prevent oscillation. Mode 2 (frequency-biased) requires 7-12% ghost rate to enter, but stays active while rate is 5-22%.
-
-Additional tuning beyond the paper:
-- **Adaptive queue sizing** - Small queue is 20% for caches ≤32K, 15% for ≤128K, 10% for larger
-- **Ghost frequency boost** - Returning items start with freq=1 instead of 0
-- **Higher frequency cap** - Max freq=7 (vs 3) for better hot/warm discrimination
+The core algorithm follows the paper closely: items enter the small queue, get promoted to main after 2+ accesses, and evicted items are tracked in a ghost queue to inform future admissions.
 
 ## License
 
