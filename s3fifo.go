@@ -342,8 +342,11 @@ func (c *s3fifo[K, V]) get(key K) (V, bool) {
 		}
 		val := ent.value
 		expiry := ent.expiryNano
-		// LRU reordering: move accessed main queue items to back
-		if !ent.inSmall {
+		// LRU reordering: move accessed items to back of their queue
+		if ent.inSmall {
+			s.small.remove(ent)
+			s.small.pushBack(ent)
+		} else {
 			s.main.remove(ent)
 			s.main.pushBack(ent)
 		}
@@ -371,8 +374,11 @@ func (c *s3fifo[K, V]) get(key K) (V, bool) {
 		}
 		val := ent.value
 		expiry := ent.expiryNano
-		// LRU reordering: move accessed main queue items to back
-		if !ent.inSmall {
+		// LRU reordering: move accessed items to back of their queue
+		if ent.inSmall {
+			s.small.remove(ent)
+			s.small.pushBack(ent)
+		} else {
 			s.main.remove(ent)
 			s.main.pushBack(ent)
 		}
@@ -404,8 +410,11 @@ func (s *shard[K, V]) get(key K) (V, bool) {
 	val := ent.value
 	expiry := ent.expiryNano
 
-	// LRU reordering: move accessed main queue items to back
-	if !ent.inSmall {
+	// LRU reordering: move accessed items to back of their queue
+	if ent.inSmall {
+		s.small.remove(ent)
+		s.small.pushBack(ent)
+	} else {
 		s.main.remove(ent)
 		s.main.pushBack(ent)
 	}
