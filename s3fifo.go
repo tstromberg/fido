@@ -558,31 +558,19 @@ func (s *shard[K, V]) delete(key K) {
 }
 
 // evictFromSmall evicts an entry from the small queue.
-// Uses sampling to approximate LRU: samples up to 5 entries and evicts the coldest.
+// Checks the front entry and evicts if cold (freq < 2), otherwise promotes to main.
 func (s *shard[K, V]) evictFromSmall() {
 	mainCap := (s.capacity * 9) / 10 // 90% for main queue
-	const sampleSize = 5
 
 	for s.small.len > 0 {
-		// Sample up to 5 entries from the front, find coldest evictable one
-		var coldest *entry[K, V]
-		coldestFreq := uint32(maxFreq + 1)
-		sampled := 0
+		e := s.small.head
+		freq := e.freq.Load()
 
-		for e := s.small.head; e != nil && sampled < sampleSize; e = e.next {
-			sampled++
-			freq := e.freq.Load()
-			if freq < 2 && freq < coldestFreq {
-				coldest = e
-				coldestFreq = freq
-			}
-		}
-
-		if coldest != nil {
-			// Found an evictable entry
-			s.small.remove(coldest)
-			k := coldest.key
-			peakFreq := coldest.peakFreq.Load()
+		// Cold entry (freq < 2): evict and add to ghost
+		if freq < 2 {
+			s.small.remove(e)
+			k := e.key
+			peakFreq := e.peakFreq.Load()
 			delete(s.entries, k)
 
 			h := s.hasher(k)
@@ -597,13 +585,12 @@ func (s *shard[K, V]) evictFromSmall() {
 				s.ghostFreqActive, s.ghostFreqAging = s.ghostFreqAging, s.ghostFreqActive
 			}
 
-			s.putEntry(coldest)
+			s.putEntry(e)
 			s.parent.totalEntries.Add(-1)
 			return
 		}
 
-		// No evictable entry in sample - promote the head and retry
-		e := s.small.head
+		// Warm entry: promote to main queue
 		s.small.remove(e)
 		e.freq.Store(0)
 		e.inSmall = false
@@ -616,30 +603,17 @@ func (s *shard[K, V]) evictFromSmall() {
 }
 
 // evictFromMain evicts an entry from the main queue.
-// Uses sampling to approximate LRU: samples up to 5 entries and evicts the coldest.
+// Checks the front entry and evicts if cold (freq == 0), otherwise gives second chance.
 func (s *shard[K, V]) evictFromMain() {
-	const sampleSize = 5
-
 	for s.main.len > 0 {
-		// Sample up to 5 entries from the front, find coldest evictable one (freq == 0)
-		var coldest *entry[K, V]
-		coldestFreq := uint32(maxFreq + 1)
-		sampled := 0
+		e := s.main.head
+		freq := e.freq.Load()
 
-		for e := s.main.head; e != nil && sampled < sampleSize; e = e.next {
-			sampled++
-			freq := e.freq.Load()
-			if freq < coldestFreq {
-				coldest = e
-				coldestFreq = freq
-			}
-		}
-
-		if coldest != nil && coldestFreq == 0 {
-			// Found an evictable entry (freq == 0)
-			s.main.remove(coldest)
-			k := coldest.key
-			peakFreq := coldest.peakFreq.Load()
+		// Cold entry (freq == 0): evict and add to ghost
+		if freq == 0 {
+			s.main.remove(e)
+			k := e.key
+			peakFreq := e.peakFreq.Load()
 			delete(s.entries, k)
 
 			h := s.hasher(k)
@@ -654,16 +628,15 @@ func (s *shard[K, V]) evictFromMain() {
 				s.ghostFreqActive, s.ghostFreqAging = s.ghostFreqAging, s.ghostFreqActive
 			}
 
-			s.putEntry(coldest)
+			s.putEntry(e)
 			s.parent.totalEntries.Add(-1)
 			return
 		}
 
-		// No evictable entry in sample - give second chance to coldest and retry
-		// (coldest is always set since we're inside `for s.main.len > 0`)
-		s.main.remove(coldest)
-		coldest.freq.Store(coldestFreq - 1)
-		s.main.pushBack(coldest)
+		// Warm entry: give second chance (decrement freq and move to back)
+		s.main.remove(e)
+		e.freq.Store(freq - 1)
+		s.main.pushBack(e)
 	}
 }
 

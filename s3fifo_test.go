@@ -327,6 +327,46 @@ func BenchmarkS3FIFO_Mixed(b *testing.B) {
 	}
 }
 
+// BenchmarkS3FIFO_SetEvict benchmarks Set with eviction (unique keys after warmup).
+func BenchmarkS3FIFO_SetEvict(b *testing.B) {
+	cache := newS3FIFO[int, int](&config{size: 10000})
+	// Warmup: fill cache to capacity
+	for i := range 10000 {
+		cache.set(i, i, 0)
+	}
+	b.ResetTimer()
+
+	// Each set uses a unique key, forcing eviction
+	for i := range b.N {
+		cache.set(10000+i, i, 0)
+	}
+}
+
+// BenchmarkS3FIFO_SetEvictString benchmarks Set with eviction using string keys.
+func BenchmarkS3FIFO_SetEvictString(b *testing.B) {
+	cache := newS3FIFO[string, int](&config{size: 10000})
+	// Pre-generate keys to avoid allocation in benchmark loop
+	warmupKeys := make([]string, 10000)
+	for i := range 10000 {
+		warmupKeys[i] = fmt.Sprintf("warmup-key-%d", i)
+	}
+	benchKeys := make([]string, b.N)
+	for i := range b.N {
+		benchKeys[i] = fmt.Sprintf("bench-key-%d", i)
+	}
+
+	// Warmup: fill cache to capacity
+	for i := range 10000 {
+		cache.set(warmupKeys[i], i, 0)
+	}
+	b.ResetTimer()
+
+	// Each set uses a unique key, forcing eviction
+	for i := range b.N {
+		cache.set(benchKeys[i], i, 0)
+	}
+}
+
 // Test S3-FIFO behavior: hot items survive one-hit wonder floods
 func TestS3FIFOBehavior(t *testing.T) {
 	// Use larger capacity for meaningful per-shard sizes with 2048 shards
