@@ -1,0 +1,3429 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>gocachemark - Go Cache Benchmark Report @ 2025-12-25 17:39:48 EST</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: white;
+            line-height: 1.6;
+            color: #333;
+        }
+        @media print {
+            body { padding: 20px; }
+            .medal-table-container { page-break-inside: avoid; }
+            .chart-container { page-break-inside: avoid; }
+        }
+        h1 {
+            color: #000;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+            font-size: 2em;
+            font-weight: 600;
+        }
+        h2 {
+            color: #000;
+            margin-top: 50px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #ccc;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        h3 {
+            color: #333;
+            margin-top: 30px;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+        h4 {
+            color: #333;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1em;
+            font-weight: 600;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 20px;
+        }
+        .timestamp a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .timestamp a:hover {
+            text-decoration: underline;
+        }
+        .benchmark-info-top {
+            padding: 12px 15px;
+            margin-bottom: 30px;
+            background: #f5f5f5;
+            font-size: 0.85em;
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .benchmark-info-top .info-label {
+            color: #666;
+        }
+        .benchmark-info-top .info-value {
+            color: #333;
+        }
+        .medal-table-container {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+        }
+        .medal-bar-row {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            height: 32px;
+        }
+        .medal-bar-label {
+            width: 130px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #000;
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+        }
+        .medal-bar-wrapper {
+            flex: 1;
+            height: 24px;
+        }
+        .medal-bar-container {
+            height: 100%;
+            display: flex;
+            min-width: 0;
+            border: 1px solid rgba(0,0,0,0.3);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .medal-segment {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+            min-width: 24px;
+        }
+        .medal-segment.gold {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+        }
+        .medal-segment.silver {
+            background: linear-gradient(135deg, #E8E8E8 0%, #A0A0A0 100%);
+        }
+        .medal-segment.bronze {
+            background: linear-gradient(135deg, #CD853F 0%, #8B4513 100%);
+            color: #fff;
+        }
+        .medal-segment.other {
+            background: linear-gradient(135deg, #666 0%, #333 100%);
+            color: #fff;
+        }
+        .medal-counts {
+            width: 260px;
+            display: flex;
+            gap: 8px;
+            padding-left: 15px;
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            font-size: 13px;
+            align-items: center;
+        }
+        .medal-count {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .medal-points {
+            color: #555;
+            font-weight: 600;
+            margin-left: 4px;
+            padding-left: 8px;
+            border-left: 1px solid #ddd;
+            min-width: 55px;
+            white-space: nowrap;
+        }
+        .medal-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        .medal-icon.gold { background: #FFD700; }
+        .medal-icon.silver { background: #C0C0C0; }
+        .medal-icon.bronze { background: #CD853F; color: #fff; }
+        .winner-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            color: #333;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+            text-transform: uppercase;
+        }
+        .benchmark-medals-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .benchmark-medals-table th,
+        .benchmark-medals-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .benchmark-medals-table th {
+            background: #f9f9f9;
+            font-weight: 600;
+            color: #333;
+        }
+        .benchmark-medals-table .category {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .benchmark-medals-table .cache-cell {
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            font-size: 0.9em;
+        }
+        .benchmark-medals-table .gold-cell { background: rgba(255, 215, 0, 0.15); }
+        .benchmark-medals-table .silver-cell { background: rgba(192, 192, 192, 0.15); }
+        .benchmark-medals-table .bronze-cell { background: rgba(205, 127, 50, 0.15); }
+        .category-section {
+            margin: 25px 0;
+            padding: 15px 20px;
+            border: 1px solid #ddd;
+            background: #fafafa;
+        }
+        .category-section h4 {
+            margin: 0 0 15px 0;
+            font-size: 1.1em;
+            color: #333;
+        }
+        .category-winner {
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            font-weight: 700;
+            color: #2E7D32;
+        }
+        .category-content {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+        .category-standings {
+            min-width: 180px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            padding: 10px 15px;
+        }
+        .category-rank-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 0.9em;
+        }
+        .category-rank-name {
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            font-weight: 500;
+        }
+        .category-rank-medals {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.85em;
+        }
+        .category-rank-medals .medal-icon {
+            width: 14px;
+            height: 14px;
+        }
+        .no-medals {
+            color: #999;
+        }
+        .category-content .benchmark-medals-table {
+            flex: 1;
+            margin: 0;
+        }
+        .section-header {
+            padding: 15px 0;
+            margin: 40px 0 20px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .section-header h2 {
+            margin: 0;
+            border: none;
+        }
+        .section-header p {
+            margin: 10px 0 0 0;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .toc {
+            padding: 20px 0;
+            margin: 30px 0;
+            border-top: 1px solid #ddd;
+            border-bottom: 1px solid #ddd;
+        }
+        .toc h2 {
+            margin: 0 0 15px 0;
+            color: #000;
+            border: none;
+            font-size: 1.2em;
+        }
+        .toc ul {
+            list-style: disc;
+            padding-left: 20px;
+            margin: 0;
+        }
+        .toc li {
+            margin: 8px 0;
+        }
+        .toc a {
+            text-decoration: none;
+            color: #0066cc;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .toc a .icon {
+            margin-right: 8px;
+        }
+        .collapsible-section {
+            border: 1px solid #ddd;
+            margin: 30px 0;
+            background: white;
+        }
+        .section-toggle {
+            cursor: pointer;
+            padding: 15px 20px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .section-toggle h2 {
+            margin: 0;
+            color: #000;
+            border: none;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        .section-toggle .toggle-icon {
+            font-size: 1.5em;
+        }
+        .section-toggle.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .section-content {
+            padding: 30px;
+        }
+        .section-content.collapsed {
+            display: none;
+        }
+        .suite-description {
+            margin: 0 0 20px 0;
+            padding: 10px 0 10px 15px;
+            border-left: 3px solid #666;
+            color: #555;
+        }
+        .chart-container {
+            padding: 20px;
+            margin: 30px 0;
+            border: 1px solid #ddd;
+        }
+        footer {
+            margin-top: 60px;
+            padding: 20px 0;
+            border-top: 1px solid #ddd;
+            color: #999;
+            font-size: 0.85em;
+            text-align: center;
+        }
+        footer a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin: 6px 0;
+            height: 24px;
+        }
+        .bar-label {
+            width: 120px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #000;
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+        }
+        .bar-container {
+            flex: 1;
+            height: 18px;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            overflow: hidden;
+        }
+        .bar {
+            height: 100%;
+            background: #2E7D32;
+        }
+        .bar-value {
+            width: 90px;
+            text-align: right;
+            font-size: 13px;
+            font-weight: 500;
+            color: #333;
+            padding-left: 10px;
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+        }
+        .bar.latency { background: #2E7D32; }
+        .bar.memory { background: #2E7D32; }
+        .bar.throughput { background: #2E7D32; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border: 1px solid #ddd;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #f5f5f5;
+            color: #000;
+            font-weight: 600;
+            border-bottom: 2px solid #000;
+        }
+        td {
+            font-family: "SF Mono", Monaco, "Courier New", monospace;
+            font-size: 0.9em;
+        }
+        td:first-child {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-weight: 500;
+        }
+        .best { font-weight: bold; }
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 25px;
+        }
+        th.sortable:hover {
+            background: #e5e5e5;
+        }
+        th.sortable::after {
+            content: '▼';
+            position: absolute;
+            right: 8px;
+            opacity: 0.3;
+            font-size: 0.7em;
+        }
+        th.sortable.sorted-asc::after {
+            content: '▲';
+            opacity: 1;
+        }
+        th.sortable.sorted-desc::after {
+            content: '▼';
+            opacity: 1;
+        }
+        .cell-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .cell-bar {
+            height: 12px;
+            background: #2E7D32;
+            min-width: 2px;
+        }
+        .cell-bar.set { background: #388E3C; }
+        .cell-bar.evict { background: #43A047; }
+        .cell-value {
+            white-space: nowrap;
+            min-width: 50px;
+        }
+        .line-chart-container {
+            padding: 20px;
+            margin: 30px 0;
+            border: 1px solid #ddd;
+            height: 400px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>gocachemark - Go Cache Benchmark Report @ 2025-12-25 17:39:48 EST</h1>
+    <p class="timestamp">
+        <a href="https://github.com/tstromberg/gocachemark" target="_blank">gocachemark</a> ·
+        darwin/arm64 · 16 CPUs · go1.25.4
+    </p>
+
+    <div class="benchmark-info-top">
+        <div class="info-item">
+            <span class="info-label">2025-12-25 17:39:48 EST</span>
+            <span class="info-value">gocachemark </span>
+        </div>
+    </div>
+
+<div class="toc">
+    <h2>Table of Contents</h2>
+    <ul>
+        <li><a href="#standings">Medal Standings</a></li>
+        <li><a href="#medals-by-category">Medals by Category</a></li>
+        <li><a href="#hitrate">Hit Rate Benchmarks</a></li>
+        <li><a href="#latency">Latency Benchmarks</a></li>
+        <li><a href="#throughput">Throughput Benchmarks</a></li>
+        <li><a href="#memory">Memory Benchmarks</a></li>
+    </ul>
+</div>
+
+
+    <div class="section-header" id="standings">
+        <h2>Medal Standings</h2>
+        <p>Ranked by total points earned across all benchmarks</p>
+    </div>
+
+    <div class="medal-table-container">
+        
+        
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">multicache</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 100.0%;">
+                    <div class="medal-segment gold" style="flex: 110;"></div>
+                    <div class="medal-segment silver" style="flex: 14;"></div>
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 3;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>11</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>2</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">132 pts</span>
+                <span class="winner-badge">Winner</span>
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">otter</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 38.6%;">
+                    <div class="medal-segment gold" style="flex: 10;"></div>
+                    <div class="medal-segment silver" style="flex: 28;"></div>
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 8;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>1</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>4</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">51 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">2q</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 35.6%;">
+                    
+                    <div class="medal-segment silver" style="flex: 28;"></div>
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 14;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>4</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">47 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">clock</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 32.6%;">
+                    <div class="medal-segment gold" style="flex: 20;"></div>
+                    <div class="medal-segment silver" style="flex: 7;"></div>
+                    
+                    <div class="medal-segment other" style="flex: 16;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>2</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>1</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>0</span>
+                <span class="medal-points">43 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">theine</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 31.8%;">
+                    <div class="medal-segment gold" style="flex: 10;"></div>
+                    
+                    <div class="medal-segment bronze" style="flex: 25;"></div>
+                    <div class="medal-segment other" style="flex: 7;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>1</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>5</span>
+                <span class="medal-points">42 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">freelru-shard</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 29.5%;">
+                    <div class="medal-segment gold" style="flex: 10;"></div>
+                    <div class="medal-segment silver" style="flex: 14;"></div>
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 10;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>1</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>2</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">39 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">s3-fifo</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 28.8%;">
+                    
+                    <div class="medal-segment silver" style="flex: 21;"></div>
+                    <div class="medal-segment bronze" style="flex: 10;"></div>
+                    <div class="medal-segment other" style="flex: 7;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>3</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>2</span>
+                <span class="medal-points">38 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">sieve</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 28.0%;">
+                    <div class="medal-segment gold" style="flex: 10;"></div>
+                    
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 22;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>1</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">37 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">ttlcache</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 25.0%;">
+                    
+                    
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 28;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">33 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">freelru-sync</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 21.2%;">
+                    <div class="medal-segment gold" style="flex: 10;"></div>
+                    
+                    <div class="medal-segment bronze" style="flex: 10;"></div>
+                    <div class="medal-segment other" style="flex: 8;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>1</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>2</span>
+                <span class="medal-points">28 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">freecache</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 15.2%;">
+                    
+                    
+                    <div class="medal-segment bronze" style="flex: 10;"></div>
+                    <div class="medal-segment other" style="flex: 10;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>2</span>
+                <span class="medal-points">20 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">lru</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 12.1%;">
+                    
+                    
+                    <div class="medal-segment bronze" style="flex: 5;"></div>
+                    <div class="medal-segment other" style="flex: 11;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>1</span>
+                <span class="medal-points">16 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">s4lru</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 9.1%;">
+                    
+                    <div class="medal-segment silver" style="flex: 7;"></div>
+                    
+                    <div class="medal-segment other" style="flex: 5;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>1</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>0</span>
+                <span class="medal-points">12 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">tinylfu</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 6.8%;">
+                    
+                    <div class="medal-segment silver" style="flex: 7;"></div>
+                    
+                    <div class="medal-segment other" style="flex: 2;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>1</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>0</span>
+                <span class="medal-points">9 pts</span>
+                
+            </div>
+        </div>
+        
+        
+        
+        
+        <div class="medal-bar-row">
+            <div class="medal-bar-label">ristretto</div>
+            <div class="medal-bar-wrapper">
+                <div class="medal-bar-container" style="width: 6.1%;">
+                    
+                    
+                    
+                    <div class="medal-segment other" style="flex: 8;"></div>
+                </div>
+            </div>
+            <div class="medal-counts">
+                <span class="medal-count"><span class="medal-icon gold"></span>0</span>
+                <span class="medal-count"><span class="medal-icon silver"></span>0</span>
+                <span class="medal-count"><span class="medal-icon bronze"></span>0</span>
+                <span class="medal-points">8 pts</span>
+                
+            </div>
+        </div>
+        
+    </div>
+
+    
+    <h3 id="medals-by-category">Medals by Category</h3>
+    
+    <div class="category-section">
+        <h4>Hit Rate — Winner: <span class="category-winner">multicache</span></h4>
+        <div class="category-content">
+            
+            <div class="category-standings">
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">multicache</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>5
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">clock</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>2
+                        
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">theine</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>1
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">sieve</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>1
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">2q</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>4
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">s3-fifo</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>3
+                        <span class="medal-icon bronze"></span>2
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">tinylfu</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">s4lru</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">otter</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freecache</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-sync</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+            </div>
+            
+            <table class="benchmark-medals-table">
+                <thead>
+                    <tr>
+                        <th>Benchmark</th>
+                        <th class="gold-cell">Gold</th>
+                        <th class="silver-cell">Silver</th>
+                        <th class="bronze-cell">Bronze</th>
+                    </tr>
+                </thead>
+                <tbody>
+                
+                    <tr>
+                        <td>CDN</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">s3-fifo</td>
+                        <td class="cache-cell bronze-cell">2q</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Meta</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">s3-fifo</td>
+                        <td class="cache-cell bronze-cell">theine</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Zipf</td>
+                        <td class="cache-cell gold-cell">theine</td>
+                        <td class="cache-cell silver-cell">tinylfu</td>
+                        <td class="cache-cell bronze-cell">otter</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Twitter</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">2q</td>
+                        <td class="cache-cell bronze-cell">sieve</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Wikipedia</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">2q</td>
+                        <td class="cache-cell bronze-cell">s3-fifo</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Thesios Block</td>
+                        <td class="cache-cell gold-cell">clock</td>
+                        <td class="cache-cell silver-cell">s3-fifo</td>
+                        <td class="cache-cell bronze-cell">freecache</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Thesios File</td>
+                        <td class="cache-cell gold-cell">sieve</td>
+                        <td class="cache-cell silver-cell">s4lru</td>
+                        <td class="cache-cell bronze-cell">multicache</td>
+                    </tr>
+                
+                    <tr>
+                        <td>IBM Docker</td>
+                        <td class="cache-cell gold-cell">clock</td>
+                        <td class="cache-cell silver-cell">2q</td>
+                        <td class="cache-cell bronze-cell">freelru-sync</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Tencent Photo</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">2q</td>
+                        <td class="cache-cell bronze-cell">s3-fifo</td>
+                    </tr>
+                
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="category-section">
+        <h4>Latency — Winner: <span class="category-winner">multicache</span></h4>
+        <div class="category-content">
+            
+            <div class="category-standings">
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">multicache</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>2
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-shard</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>1
+                        
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">clock</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">otter</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">lru</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">theine</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freecache</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+            </div>
+            
+            <table class="benchmark-medals-table">
+                <thead>
+                    <tr>
+                        <th>Benchmark</th>
+                        <th class="gold-cell">Gold</th>
+                        <th class="silver-cell">Silver</th>
+                        <th class="bronze-cell">Bronze</th>
+                    </tr>
+                </thead>
+                <tbody>
+                
+                    <tr>
+                        <td>String Keys</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">clock</td>
+                        <td class="cache-cell bronze-cell">lru</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Int Keys</td>
+                        <td class="cache-cell gold-cell">freelru-shard</td>
+                        <td class="cache-cell silver-cell">multicache</td>
+                        <td class="cache-cell bronze-cell">theine</td>
+                    </tr>
+                
+                    <tr>
+                        <td>GetOrSet</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">otter</td>
+                        <td class="cache-cell bronze-cell">freecache</td>
+                    </tr>
+                
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="category-section">
+        <h4>Throughput — Winner: <span class="category-winner">multicache</span></h4>
+        <div class="category-content">
+            
+            <div class="category-standings">
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">multicache</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>4
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">otter</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>1
+                        <span class="medal-icon silver"></span>2
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-shard</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>2
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">theine</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>3
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-sync</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">ttlcache</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+            </div>
+            
+            <table class="benchmark-medals-table">
+                <thead>
+                    <tr>
+                        <th>Benchmark</th>
+                        <th class="gold-cell">Gold</th>
+                        <th class="silver-cell">Silver</th>
+                        <th class="bronze-cell">Bronze</th>
+                    </tr>
+                </thead>
+                <tbody>
+                
+                    <tr>
+                        <td>String Get</td>
+                        <td class="cache-cell gold-cell">otter</td>
+                        <td class="cache-cell silver-cell">multicache</td>
+                        <td class="cache-cell bronze-cell">theine</td>
+                    </tr>
+                
+                    <tr>
+                        <td>String Set</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">freelru-shard</td>
+                        <td class="cache-cell bronze-cell">freelru-sync</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Int Get</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">otter</td>
+                        <td class="cache-cell bronze-cell">theine</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Int Set</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">freelru-shard</td>
+                        <td class="cache-cell bronze-cell">theine</td>
+                    </tr>
+                
+                    <tr>
+                        <td>GetOrSet</td>
+                        <td class="cache-cell gold-cell">multicache</td>
+                        <td class="cache-cell silver-cell">otter</td>
+                        <td class="cache-cell bronze-cell">ttlcache</td>
+                    </tr>
+                
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="category-section">
+        <h4>Memory — Winner: <span class="category-winner">freelru-sync</span></h4>
+        <div class="category-content">
+            
+            <div class="category-standings">
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-sync</span>
+                    <span class="category-rank-medals">
+                        <span class="medal-icon gold"></span>1
+                        
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">otter</span>
+                    <span class="category-rank-medals">
+                        
+                        <span class="medal-icon silver"></span>1
+                        
+                        
+                    </span>
+                </div>
+                
+                
+                <div class="category-rank-row">
+                    <span class="category-rank-name">freelru-shard</span>
+                    <span class="category-rank-medals">
+                        
+                        
+                        <span class="medal-icon bronze"></span>1
+                        
+                    </span>
+                </div>
+                
+            </div>
+            
+            <table class="benchmark-medals-table">
+                <thead>
+                    <tr>
+                        <th>Benchmark</th>
+                        <th class="gold-cell">Gold</th>
+                        <th class="silver-cell">Silver</th>
+                        <th class="bronze-cell">Bronze</th>
+                    </tr>
+                </thead>
+                <tbody>
+                
+                    <tr>
+                        <td>Overhead</td>
+                        <td class="cache-cell gold-cell">freelru-sync</td>
+                        <td class="cache-cell silver-cell">otter</td>
+                        <td class="cache-cell bronze-cell">freelru-shard</td>
+                    </tr>
+                
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    
+
+
+
+<div class="collapsible-section" id="hitrate">
+    <div class="section-toggle" onclick="toggleSection(this)">
+        <h2>Hit Rate Benchmarks</h2>
+        <span class="toggle-icon">▼</span>
+    </div>
+    <div class="section-content">
+        <p class="suite-description">Higher hit rates mean better cache effectiveness. Tests measure how often requested items are found in the cache across different cache sizes.</p>
+
+    
+    
+
+    
+    <h3>CDN Production Trace</h3>
+    <p class="suite-description">2M operations, ~768K unique keys. Source: <a href="https://github.com/1a1a11a/libCacheSim">libCacheSim</a></p>
+    <div class="line-chart-container">
+        <canvas id="cdnChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>55.93%</td><td>57.28%</td><td>58.47%</td><td>59.58%</td><td>60.51%</td>
+            <td style="font-weight:bold;">58.36%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>55.69%</td><td>56.95%</td><td>58.33%</td><td>59.61%</td><td>60.55%</td>
+            <td style="font-weight:bold;">58.23%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>55.57%</td><td>57.02%</td><td>58.35%</td><td>59.56%</td><td>60.61%</td>
+            <td style="font-weight:bold;">58.22%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>55.63%</td><td>56.95%</td><td>58.25%</td><td>59.30%</td><td>60.59%</td>
+            <td style="font-weight:bold;">58.14%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>55.09%</td><td>56.68%</td><td>58.14%</td><td>59.42%</td><td>60.57%</td>
+            <td style="font-weight:bold;">57.98%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>54.90%</td><td>56.52%</td><td>57.94%</td><td>59.35%</td><td>60.53%</td>
+            <td style="font-weight:bold;">57.85%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>54.90%</td><td>56.52%</td><td>57.94%</td><td>59.35%</td><td>60.53%</td>
+            <td style="font-weight:bold;">57.85%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>54.90%</td><td>56.52%</td><td>57.94%</td><td>59.35%</td><td>60.53%</td>
+            <td style="font-weight:bold;">57.85%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>54.89%</td><td>56.51%</td><td>57.94%</td><td>59.34%</td><td>60.53%</td>
+            <td style="font-weight:bold;">57.84%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>55.42%</td><td>56.64%</td><td>57.79%</td><td>58.82%</td><td>59.67%</td>
+            <td style="font-weight:bold;">57.67%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>53.85%</td><td>55.48%</td><td>56.98%</td><td>58.56%</td><td>59.98%</td>
+            <td style="font-weight:bold;">56.97%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>54.67%</td><td>55.21%</td><td>56.11%</td><td>57.26%</td><td>58.97%</td>
+            <td style="font-weight:bold;">56.45%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>54.14%</td><td>55.35%</td><td>56.08%</td><td>56.82%</td><td>58.25%</td>
+            <td style="font-weight:bold;">56.13%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>54.35%</td><td>55.26%</td><td>55.39%</td><td>55.81%</td><td>59.31%</td>
+            <td style="font-weight:bold;">56.02%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>35.16%</td><td>36.95%</td><td>38.54%</td><td>39.33%</td><td>42.56%</td>
+            <td style="font-weight:bold;">38.51%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Meta KVCache Production Trace</h3>
+    <p class="suite-description">5M operations. Source: <a href="https://cachelib.org/">CacheLib</a></p>
+    <div class="line-chart-container">
+        <canvas id="metaChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>58.27%</td><td>66.92%</td><td>74.15%</td><td>80.22%</td><td>84.71%</td>
+            <td style="font-weight:bold;">72.85%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>55.36%</td><td>64.63%</td><td>72.30%</td><td>78.90%</td><td>84.07%</td>
+            <td style="font-weight:bold;">71.05%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>56.95%</td><td>65.30%</td><td>71.99%</td><td>77.00%</td><td>81.12%</td>
+            <td style="font-weight:bold;">70.47%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>51.77%</td><td>61.38%</td><td>70.09%</td><td>77.61%</td><td>83.36%</td>
+            <td style="font-weight:bold;">68.84%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>53.82%</td><td>62.04%</td><td>69.59%</td><td>76.27%</td><td>81.97%</td>
+            <td style="font-weight:bold;">68.74%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>51.04%</td><td>60.45%</td><td>69.58%</td><td>77.77%</td><td>83.83%</td>
+            <td style="font-weight:bold;">68.53%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>50.63%</td><td>59.64%</td><td>69.34%</td><td>77.77%</td><td>83.90%</td>
+            <td style="font-weight:bold;">68.26%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>50.63%</td><td>59.64%</td><td>69.34%</td><td>77.77%</td><td>83.90%</td>
+            <td style="font-weight:bold;">68.26%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>50.63%</td><td>59.64%</td><td>69.34%</td><td>77.77%</td><td>83.90%</td>
+            <td style="font-weight:bold;">68.26%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>50.54%</td><td>59.65%</td><td>69.30%</td><td>77.73%</td><td>83.89%</td>
+            <td style="font-weight:bold;">68.22%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>49.82%</td><td>59.51%</td><td>68.87%</td><td>76.99%</td><td>83.41%</td>
+            <td style="font-weight:bold;">67.72%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>50.61%</td><td>58.90%</td><td>67.38%</td><td>75.96%</td><td>82.89%</td>
+            <td style="font-weight:bold;">67.15%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>52.40%</td><td>53.54%</td><td>56.54%</td><td>61.62%</td><td>69.22%</td>
+            <td style="font-weight:bold;">58.66%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>34.97%</td><td>40.53%</td><td>54.93%</td><td>72.20%</td><td>80.68%</td>
+            <td style="font-weight:bold;">56.66%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>27.16%</td><td>35.75%</td><td>44.21%</td><td>52.87%</td><td>57.31%</td>
+            <td style="font-weight:bold;">43.46%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Zipf Synthetic Trace</h3>
+    <p class="suite-description">alpha=0.8, 2M operations, 100K keyspace</p>
+    <div class="line-chart-container">
+        <canvas id="zipfChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>theine</td>
+            <td>63.13%</td><td>74.16%</td><td>87.14%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.89%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>62.96%</td><td>73.57%</td><td>86.92%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.70%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>62.27%</td><td>73.25%</td><td>86.65%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.44%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>61.48%</td><td>73.20%</td><td>87.11%</td><td>94.93%</td><td>94.96%</td>
+            <td style="font-weight:bold;">82.34%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>61.56%</td><td>73.07%</td><td>87.00%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.33%</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>61.96%</td><td>72.95%</td><td>86.72%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.33%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>56.98%</td><td>72.74%</td><td>91.80%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.31%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>61.74%</td><td>72.40%</td><td>86.91%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">82.22%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>61.04%</td><td>72.03%</td><td>85.44%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">81.71%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>59.77%</td><td>70.97%</td><td>85.93%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">81.34%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>56.54%</td><td>70.48%</td><td>86.60%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">80.73%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>55.57%</td><td>69.55%</td><td>86.11%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">80.25%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>55.57%</td><td>69.55%</td><td>86.11%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">80.25%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>55.57%</td><td>69.55%</td><td>86.11%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">80.25%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>55.47%</td><td>69.50%</td><td>86.07%</td><td>95.01%</td><td>95.01%</td>
+            <td style="font-weight:bold;">80.21%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Twitter Production Cache Trace</h3>
+    <p class="suite-description">2M operations, cluster001+cluster052. Source: <a href="https://github.com/twitter/cache-trace">Twitter Cache Trace</a></p>
+    <div class="line-chart-container">
+        <canvas id="twitterChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>81.90%</td><td>83.64%</td><td>84.95%</td><td>85.97%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.65%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>80.97%</td><td>83.05%</td><td>84.88%</td><td>86.17%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.37%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>80.97%</td><td>82.96%</td><td>84.60%</td><td>86.08%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.28%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>80.89%</td><td>82.93%</td><td>84.68%</td><td>85.97%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.25%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>80.36%</td><td>82.74%</td><td>84.71%</td><td>86.28%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.17%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>80.37%</td><td>82.56%</td><td>84.50%</td><td>86.18%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.08%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>80.37%</td><td>82.56%</td><td>84.50%</td><td>86.18%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.08%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>80.37%</td><td>82.56%</td><td>84.50%</td><td>86.18%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.08%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>80.34%</td><td>82.56%</td><td>84.49%</td><td>86.18%</td><td>86.77%</td>
+            <td style="font-weight:bold;">84.07%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>80.88%</td><td>82.76%</td><td>84.25%</td><td>85.46%</td><td>86.43%</td>
+            <td style="font-weight:bold;">83.96%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>80.03%</td><td>82.28%</td><td>84.26%</td><td>86.00%</td><td>86.77%</td>
+            <td style="font-weight:bold;">83.87%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>79.64%</td><td>81.61%</td><td>83.89%</td><td>85.77%</td><td>86.77%</td>
+            <td style="font-weight:bold;">83.54%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>78.26%</td><td>81.14%</td><td>84.03%</td><td>85.82%</td><td>86.77%</td>
+            <td style="font-weight:bold;">83.21%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>80.15%</td><td>81.56%</td><td>82.58%</td><td>84.24%</td><td>86.77%</td>
+            <td style="font-weight:bold;">83.06%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>70.57%</td><td>72.87%</td><td>75.59%</td><td>79.56%</td><td>83.92%</td>
+            <td style="font-weight:bold;">76.50%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Wikipedia CDN Upload Trace</h3>
+    <p class="suite-description">2M operations, upload.wikimedia.org. Source: <a href="https://github.com/1a1a11a/libCacheSim">libCacheSim</a></p>
+    <div class="line-chart-container">
+        <canvas id="wikipediaChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>21.91%</td><td>26.01%</td><td>30.63%</td><td>35.46%</td><td>40.30%</td>
+            <td style="font-weight:bold;">30.86%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>20.76%</td><td>25.03%</td><td>30.05%</td><td>35.66%</td><td>41.38%</td>
+            <td style="font-weight:bold;">30.58%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>21.83%</td><td>25.73%</td><td>30.17%</td><td>35.01%</td><td>40.14%</td>
+            <td style="font-weight:bold;">30.57%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>21.00%</td><td>25.10%</td><td>29.59%</td><td>34.93%</td><td>40.38%</td>
+            <td style="font-weight:bold;">30.20%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>19.61%</td><td>23.92%</td><td>29.16%</td><td>34.83%</td><td>40.95%</td>
+            <td style="font-weight:bold;">29.69%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>21.39%</td><td>25.01%</td><td>28.92%</td><td>33.56%</td><td>39.31%</td>
+            <td style="font-weight:bold;">29.64%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>19.00%</td><td>22.81%</td><td>27.79%</td><td>33.68%</td><td>39.34%</td>
+            <td style="font-weight:bold;">28.52%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>18.16%</td><td>22.56%</td><td>27.22%</td><td>29.92%</td><td>35.07%</td>
+            <td style="font-weight:bold;">26.59%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>15.46%</td><td>19.36%</td><td>24.45%</td><td>31.15%</td><td>38.93%</td>
+            <td style="font-weight:bold;">25.87%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>18.97%</td><td>21.91%</td><td>25.27%</td><td>29.22%</td><td>33.75%</td>
+            <td style="font-weight:bold;">25.82%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>15.08%</td><td>19.02%</td><td>24.07%</td><td>30.66%</td><td>38.43%</td>
+            <td style="font-weight:bold;">25.45%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>15.08%</td><td>19.02%</td><td>24.07%</td><td>30.66%</td><td>38.43%</td>
+            <td style="font-weight:bold;">25.45%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>15.08%</td><td>19.02%</td><td>24.07%</td><td>30.66%</td><td>38.43%</td>
+            <td style="font-weight:bold;">25.45%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>15.06%</td><td>19.00%</td><td>24.04%</td><td>30.65%</td><td>38.42%</td>
+            <td style="font-weight:bold;">25.44%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>14.52%</td><td>18.55%</td><td>23.82%</td><td>30.29%</td><td>38.54%</td>
+            <td style="font-weight:bold;">25.14%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Google Thesios I/O Block Trace</h3>
+    <p class="suite-description">400K read operations, ~322K unique blocks. Source: <a href="https://dl.acm.org/doi/10.1145/3620666.3651337">Tectonic-Shift (SOSP '24)</a></p>
+    <div class="line-chart-container">
+        <canvas id="thesiosBlockChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>clock</td>
+            <td>17.21%</td><td>17.55%</td><td>17.83%</td><td>18.17%</td><td>18.53%</td>
+            <td style="font-weight:bold;">17.86%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>17.13%</td><td>17.57%</td><td>17.87%</td><td>18.16%</td><td>18.54%</td>
+            <td style="font-weight:bold;">17.85%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>17.23%</td><td>17.52%</td><td>17.80%</td><td>18.10%</td><td>18.57%</td>
+            <td style="font-weight:bold;">17.85%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>17.23%</td><td>17.52%</td><td>17.77%</td><td>18.09%</td><td>18.55%</td>
+            <td style="font-weight:bold;">17.83%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>17.23%</td><td>17.52%</td><td>17.77%</td><td>18.09%</td><td>18.55%</td>
+            <td style="font-weight:bold;">17.83%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>17.23%</td><td>17.52%</td><td>17.77%</td><td>18.09%</td><td>18.55%</td>
+            <td style="font-weight:bold;">17.83%</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>17.03%</td><td>17.57%</td><td>17.86%</td><td>18.16%</td><td>18.54%</td>
+            <td style="font-weight:bold;">17.83%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>17.22%</td><td>17.52%</td><td>17.78%</td><td>18.09%</td><td>18.54%</td>
+            <td style="font-weight:bold;">17.83%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>16.84%</td><td>17.40%</td><td>17.89%</td><td>18.20%</td><td>18.53%</td>
+            <td style="font-weight:bold;">17.77%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>16.81%</td><td>17.32%</td><td>17.89%</td><td>18.20%</td><td>18.53%</td>
+            <td style="font-weight:bold;">17.75%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>16.67%</td><td>17.16%</td><td>17.56%</td><td>17.81%</td><td>18.03%</td>
+            <td style="font-weight:bold;">17.45%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>15.85%</td><td>16.20%</td><td>16.79%</td><td>17.47%</td><td>18.48%</td>
+            <td style="font-weight:bold;">16.96%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>14.73%</td><td>15.65%</td><td>16.49%</td><td>17.33%</td><td>18.51%</td>
+            <td style="font-weight:bold;">16.54%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>15.14%</td><td>15.55%</td><td>16.25%</td><td>17.10%</td><td>18.24%</td>
+            <td style="font-weight:bold;">16.46%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>0.91%</td><td>1.83%</td><td>1.52%</td><td>2.18%</td><td>5.62%</td>
+            <td style="font-weight:bold;">2.41%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Google Thesios I/O File Trace</h3>
+    <p class="suite-description">400K read operations, ~46K unique files. Source: <a href="https://dl.acm.org/doi/10.1145/3620666.3651337">Tectonic-Shift (SOSP '24)</a></p>
+    <div class="line-chart-container">
+        <canvas id="thesiosFileChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>sieve</td>
+            <td>86.99%</td><td>88.10%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.04%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>86.96%</td><td>88.05%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.03%</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>86.92%</td><td>88.01%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.01%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>87.06%</td><td>87.85%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.01%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>86.87%</td><td>88.05%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.01%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>87.05%</td><td>87.83%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.00%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>87.06%</td><td>87.80%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.00%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>87.06%</td><td>87.80%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.00%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>87.06%</td><td>87.80%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">88.00%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>86.82%</td><td>88.01%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">87.99%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>86.93%</td><td>87.87%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">87.99%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>86.61%</td><td>87.88%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">87.92%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>85.95%</td><td>87.74%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">87.77%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>79.65%</td><td>86.89%</td><td>88.38%</td><td>88.38%</td><td>88.38%</td>
+            <td style="font-weight:bold;">86.33%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>33.97%</td><td>59.72%</td><td>64.02%</td><td>63.15%</td><td>58.78%</td>
+            <td style="font-weight:bold;">55.93%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">IBM Docker Registry Trace</h3>
+    <p class="suite-description">725K GET requests, ~121K unique URIs. Source: <a href="https://www.usenix.org/conference/fast18/presentation/anwar">FAST '18</a></p>
+    <div class="line-chart-container">
+        <canvas id="ibmDockerChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>clock</td>
+            <td>82.48%</td><td>82.92%</td><td>83.22%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">83.03%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>82.22%</td><td>83.01%</td><td>83.22%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">83.00%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>82.36%</td><td>82.85%</td><td>83.15%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.98%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>82.36%</td><td>82.85%</td><td>83.15%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.98%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>82.36%</td><td>82.85%</td><td>83.15%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.98%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>82.23%</td><td>82.94%</td><td>83.19%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.98%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>82.35%</td><td>82.85%</td><td>83.15%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.98%</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>82.05%</td><td>82.93%</td><td>83.19%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.94%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>81.74%</td><td>83.01%</td><td>83.22%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.90%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>82.10%</td><td>82.70%</td><td>83.08%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.89%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>81.78%</td><td>82.60%</td><td>82.94%</td><td>83.19%</td><td>83.24%</td>
+            <td style="font-weight:bold;">82.75%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>80.70%</td><td>82.08%</td><td>82.72%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.41%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>80.66%</td><td>81.73%</td><td>82.79%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.35%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>80.52%</td><td>81.33%</td><td>82.34%</td><td>83.27%</td><td>83.27%</td>
+            <td style="font-weight:bold;">82.15%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>77.60%</td><td>79.84%</td><td>81.69%</td><td>82.91%</td><td>83.09%</td>
+            <td style="font-weight:bold;">81.03%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Tencent Photo Trace</h3>
+    <p class="suite-description">2M requests, ~1.34M unique photos. Source: <a href="https://dl.acm.org/doi/10.1145/3205289.3205299">ATC '18</a></p>
+    <div class="line-chart-container">
+        <canvas id="tencentPhotoChart"></canvas>
+    </div>
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">16K</th><th class="sortable">32K</th><th class="sortable">64K</th><th class="sortable">128K</th><th class="sortable">256K</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>13.84%</td><td>16.10%</td><td>19.06%</td><td>22.92%</td><td>26.82%</td>
+            <td style="font-weight:bold;">19.75%</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>13.48%</td><td>15.82%</td><td>18.95%</td><td>22.83%</td><td>27.12%</td>
+            <td style="font-weight:bold;">19.64%</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>13.62%</td><td>15.82%</td><td>18.89%</td><td>22.94%</td><td>26.74%</td>
+            <td style="font-weight:bold;">19.60%</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>12.80%</td><td>15.09%</td><td>18.15%</td><td>22.51%</td><td>26.96%</td>
+            <td style="font-weight:bold;">19.10%</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>13.37%</td><td>15.38%</td><td>17.62%</td><td>20.26%</td><td>23.48%</td>
+            <td style="font-weight:bold;">18.02%</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>9.89%</td><td>13.53%</td><td>17.60%</td><td>21.88%</td><td>26.16%</td>
+            <td style="font-weight:bold;">17.81%</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>9.64%</td><td>13.20%</td><td>17.30%</td><td>21.62%</td><td>25.92%</td>
+            <td style="font-weight:bold;">17.54%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>9.64%</td><td>13.20%</td><td>17.30%</td><td>21.62%</td><td>25.92%</td>
+            <td style="font-weight:bold;">17.54%</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>9.64%</td><td>13.20%</td><td>17.30%</td><td>21.62%</td><td>25.92%</td>
+            <td style="font-weight:bold;">17.54%</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>9.60%</td><td>13.18%</td><td>17.29%</td><td>21.61%</td><td>25.91%</td>
+            <td style="font-weight:bold;">17.52%</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>13.42%</td><td>14.99%</td><td>16.76%</td><td>19.08%</td><td>22.23%</td>
+            <td style="font-weight:bold;">17.29%</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>12.29%</td><td>14.39%</td><td>16.81%</td><td>19.71%</td><td>22.92%</td>
+            <td style="font-weight:bold;">17.22%</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>8.87%</td><td>12.32%</td><td>16.35%</td><td>20.77%</td><td>24.95%</td>
+            <td style="font-weight:bold;">16.65%</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>11.88%</td><td>13.60%</td><td>15.94%</td><td>18.94%</td><td>22.37%</td>
+            <td style="font-weight:bold;">16.55%</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>10.54%</td><td>12.75%</td><td>14.93%</td><td>16.22%</td><td>17.69%</td>
+            <td style="font-weight:bold;">14.42%</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+    </div>
+</div>
+
+
+
+<div class="collapsible-section" id="latency">
+    <div class="section-toggle" onclick="toggleSection(this)">
+        <h2>Latency Benchmarks (Single-Threaded)</h2>
+        <span class="toggle-icon">▼</span>
+    </div>
+    <div class="section-content">
+        <p class="suite-description">Lower latency means faster operations. Measures the time (in nanoseconds) for individual Get, Set, and SetEvict operations in a single-threaded environment.</p>
+
+    
+    
+    
+    
+
+    <h3>String Keys</h3>
+
+    <h4>Results</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">Get (ns)</th>
+            <th class="sortable">Get allocs</th>
+            <th class="sortable">Set (ns)</th>
+            <th class="sortable">Set allocs</th>
+            <th class="sortable">SetEvict (ns)</th>
+            <th class="sortable">SetEvict allocs</th>
+            <th class="sortable">Avg (ns)</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 1.8424396442185513px"></div><span class="cell-value">29.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 4.063957361758828px"></div><span class="cell-value">61.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 33.85379701916253px"></div><span class="cell-value">477.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">45.0</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 2.6683608640406606px"></div><span class="cell-value">42.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 3.7308461025982673px"></div><span class="cell-value">56.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 16.678495386799145px"></div><span class="cell-value">235.0</span></div></td>
+            <td style="background:#ffcc80;color:#333">2</td>
+            <td style="font-weight:bold;">49.0</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 3.176620076238882px"></div><span class="cell-value">50.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 9.060626249167223px"></div><span class="cell-value">136.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 13.484740951029098px"></div><span class="cell-value">190.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td style="font-weight:bold;">93.0</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 3.303684879288437px"></div><span class="cell-value">52.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 7.994670219853431px"></div><span class="cell-value">120.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 7.806955287437899px"></div><span class="cell-value">110.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">86.0</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 3.5578144853875475px"></div><span class="cell-value">56.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 4.130579613590939px"></div><span class="cell-value">62.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 21.433640880056778px"></div><span class="cell-value">302.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td style="font-weight:bold;">59.0</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 3.748411689961881px"></div><span class="cell-value">59.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 3.530979347101932px"></div><span class="cell-value">53.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 37.26046841731724px"></div><span class="cell-value">525.0</span></div></td>
+            <td style="background:#ffcc80;color:#333">2</td>
+            <td style="font-weight:bold;">56.0</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 4.129606099110546px"></div><span class="cell-value">65.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 3.597601598934044px"></div><span class="cell-value">54.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 4.5422285308729595px"></div><span class="cell-value">64.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">59.5</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 4.256670902160101px"></div><span class="cell-value">67.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 20.1199200532978px"></div><span class="cell-value">302.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 25.975869410929736px"></div><span class="cell-value">366.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td style="font-weight:bold;">184.5</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 4.447268106734435px"></div><span class="cell-value">70.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 6.7288474350433045px"></div><span class="cell-value">101.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 33.073101490418736px"></div><span class="cell-value">466.0</span></div></td>
+            <td style="background:#8b0000;color:#fff">5</td>
+            <td style="font-weight:bold;">85.5</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 4.447268106734435px"></div><span class="cell-value">70.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 2.331778814123917px"></div><span class="cell-value">35.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 12.065294535131299px"></div><span class="cell-value">170.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td style="font-weight:bold;">52.5</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 7.496823379923762px"></div><span class="cell-value">118.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 35.97601598934044px"></div><span class="cell-value">540.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 20.014194464158976px"></div><span class="cell-value">282.0</span></div></td>
+            <td style="background:#c62828;color:#fff">4</td>
+            <td style="font-weight:bold;">329.0</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 8.513341804320202px"></div><span class="cell-value">134.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 6.528980679546968px"></div><span class="cell-value">98.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 19.020581973030517px"></div><span class="cell-value">268.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">116.0</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 10.673443456162643px"></div><span class="cell-value">168.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 13.85742838107928px"></div><span class="cell-value">208.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 40.02838892831795px"></div><span class="cell-value">564.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">188.0</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 14.54891994917408px"></div><span class="cell-value">229.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 13.85742838107928px"></div><span class="cell-value">208.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 29.524485450674238px"></div><span class="cell-value">416.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td style="font-weight:bold;">218.5</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 100px"></div><span class="cell-value">1574.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 100px"></div><span class="cell-value">1501.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 100px"></div><span class="cell-value">1409.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td style="font-weight:bold;">1537.5</td>
+        </tr>
+        
+        </tbody>
+    </table>
+
+    
+    
+    
+    
+    
+
+    <h3 style="margin-top: 40px;">Int Keys</h3>
+
+    <h4>Results</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">Get (ns)</th>
+            <th class="sortable">Get allocs</th>
+            <th class="sortable">Set (ns)</th>
+            <th class="sortable">Set allocs</th>
+            <th class="sortable">SetEvict (ns)</th>
+            <th class="sortable">SetEvict allocs</th>
+            <th class="sortable">Avg (ns)</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 1.4354066985645932px"></div><span class="cell-value">15.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 7.417582417582418px"></div><span class="cell-value">54.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 12.015503875968992px"></div><span class="cell-value">155.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">34.5</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 1.8181818181818181px"></div><span class="cell-value">19.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 4.395604395604396px"></div><span class="cell-value">32.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 2.4806201550387597px"></div><span class="cell-value">32.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td style="font-weight:bold;">25.5</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 5.9330143540669855px"></div><span class="cell-value">62.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 46.291208791208796px"></div><span class="cell-value">337.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 27.286821705426355px"></div><span class="cell-value">352.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td style="font-weight:bold;">199.5</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 16.363636363636363px"></div><span class="cell-value">171.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 25.686813186813183px"></div><span class="cell-value">187.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 38.372093023255815px"></div><span class="cell-value">495.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+            <td style="font-weight:bold;">179.0</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 100px"></div><span class="cell-value">1045.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar set" style="width: 100px"></div><span class="cell-value">728.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+            <td><div class="cell-bar-container"><div class="cell-bar evict" style="width: 100px"></div><span class="cell-value">1290.0</span></div></td>
+            <td style="background:#ef5350;color:#fff">3</td>
+            <td style="font-weight:bold;">886.5</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    
+    
+    <h3 style="margin-top: 40px;">String Keys - GetOrSet</h3>
+    <p class="suite-description">GetOrSet is an atomic operation that gets a value if it exists, or sets it if it doesn't. Only caches that support this operation are shown.</p>
+
+    <h4>GetOrSet Results</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">GetOrSet (ns)</th>
+            <th class="sortable">GetOrSet allocs</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 3.326810176125244px; background: #2E7D32;"></div><span class="cell-value">34.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 9.686888454011742px; background: #2E7D32;"></div><span class="cell-value">99.0</span></div></td>
+            <td style="background:#fff3cd;color:#333">1</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 22.113502935420744px; background: #2E7D32;"></div><span class="cell-value">226.0</span></div></td>
+            <td style="background:#ffcc80;color:#333">2</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 100px; background: #2E7D32;"></div><span class="cell-value">1022.0</span></div></td>
+            <td style="background:#fff;color:#333">0</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    </div>
+</div>
+
+
+
+<div class="collapsible-section" id="throughput">
+    <div class="section-toggle" onclick="toggleSection(this)">
+        <h2>Throughput Benchmarks (Multi-Threaded)</h2>
+        <span class="toggle-icon">▼</span>
+    </div>
+    <div class="section-content">
+        <p class="suite-description">Higher throughput means more queries per second (QPS). Tests measure concurrent Get and Set performance separately with a Zipf workload across different thread counts.</p>
+
+    
+    
+
+    
+    <h3>String Keys - Get</h3>
+    <div class="line-chart-container">
+        <canvas id="throughputStringGetChart"></canvas>
+    </div>
+
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">1T</th><th class="sortable">8T</th><th class="sortable">16T</th><th class="sortable">32T</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>otter</td>
+            <td>9.66M</td><td>51.59M</td><td>38.93M</td><td>41.51M</td>
+            <td style="font-weight:bold;">35.42M</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>16.56M</td><td>60.00M</td><td>25.05M</td><td>32.11M</td>
+            <td style="font-weight:bold;">33.43M</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>3.72M</td><td>43.26M</td><td>26.71M</td><td>31.95M</td>
+            <td style="font-weight:bold;">26.41M</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>6.76M</td><td>15.75M</td><td>20.77M</td><td>17.10M</td>
+            <td style="font-weight:bold;">15.09M</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>12.78M</td><td>14.78M</td><td>13.75M</td><td>13.71M</td>
+            <td style="font-weight:bold;">13.75M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>10.95M</td><td>19.67M</td><td>16.03M</td><td>12.49M</td>
+            <td style="font-weight:bold;">14.78M</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>11.37M</td><td>3.64M</td><td>4.09M</td><td>4.58M</td>
+            <td style="font-weight:bold;">5.92M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>10.30M</td><td>4.27M</td><td>3.73M</td><td>4.25M</td>
+            <td style="font-weight:bold;">5.63M</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>14.93M</td><td>3.95M</td><td>3.64M</td><td>3.74M</td>
+            <td style="font-weight:bold;">6.56M</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>13.64M</td><td>3.24M</td><td>2.39M</td><td>3.47M</td>
+            <td style="font-weight:bold;">5.69M</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>10.01M</td><td>3.42M</td><td>2.84M</td><td>2.64M</td>
+            <td style="font-weight:bold;">4.73M</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>6.03M</td><td>2.70M</td><td>2.46M</td><td>2.60M</td>
+            <td style="font-weight:bold;">3.45M</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>9.02M</td><td>3.33M</td><td>2.53M</td><td>2.23M</td>
+            <td style="font-weight:bold;">4.28M</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>9.73M</td><td>3.06M</td><td>2.21M</td><td>1.90M</td>
+            <td style="font-weight:bold;">4.22M</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>2.55M</td><td>1.68M</td><td>1.73M</td><td>1.14M</td>
+            <td style="font-weight:bold;">1.78M</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">String Keys - Set</h3>
+    <div class="line-chart-container">
+        <canvas id="throughputStringSetChart"></canvas>
+    </div>
+
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">1T</th><th class="sortable">8T</th><th class="sortable">16T</th><th class="sortable">32T</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>5.66M</td><td>15.90M</td><td>20.11M</td><td>13.38M</td>
+            <td style="font-weight:bold;">13.76M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>9.67M</td><td>16.34M</td><td>7.92M</td><td>11.37M</td>
+            <td style="font-weight:bold;">11.33M</td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>6.54M</td><td>2.53M</td><td>2.58M</td><td>4.77M</td>
+            <td style="font-weight:bold;">4.11M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>9.03M</td><td>3.08M</td><td>2.64M</td><td>3.81M</td>
+            <td style="font-weight:bold;">4.64M</td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>6.34M</td><td>2.84M</td><td>3.10M</td><td>3.61M</td>
+            <td style="font-weight:bold;">3.97M</td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>3.75M</td><td>1.59M</td><td>2.24M</td><td>3.05M</td>
+            <td style="font-weight:bold;">2.66M</td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>1.97M</td><td>1.26M</td><td>2.12M</td><td>2.47M</td>
+            <td style="font-weight:bold;">1.95M</td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>1.93M</td><td>1.67M</td><td>2.15M</td><td>2.40M</td>
+            <td style="font-weight:bold;">2.04M</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>2.85M</td><td>1.94M</td><td>2.21M</td><td>2.27M</td>
+            <td style="font-weight:bold;">2.32M</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>2.38M</td><td>2.67M</td><td>2.13M</td><td>1.84M</td>
+            <td style="font-weight:bold;">2.26M</td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>3.20M</td><td>1.40M</td><td>1.48M</td><td>1.84M</td>
+            <td style="font-weight:bold;">1.98M</td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>4.67M</td><td>1.92M</td><td>1.80M</td><td>1.74M</td>
+            <td style="font-weight:bold;">2.53M</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>2.40M</td><td>1.34M</td><td>1.36M</td><td>1.39M</td>
+            <td style="font-weight:bold;">1.62M</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>764K</td><td>3.88M</td><td>2.97M</td><td>1.33M</td>
+            <td style="font-weight:bold;">2.24M</td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>1.46M</td><td>851K</td><td>857K</td><td>843K</td>
+            <td style="font-weight:bold;">1.00M</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Int Keys - Get</h3>
+    <div class="line-chart-container">
+        <canvas id="throughputIntGetChart"></canvas>
+    </div>
+
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">1T</th><th class="sortable">8T</th><th class="sortable">16T</th><th class="sortable">32T</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>otter</td>
+            <td>13.29M</td><td>69.69M</td><td>53.59M</td><td>55.27M</td>
+            <td style="font-weight:bold;">47.96M</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>4.56M</td><td>53.59M</td><td>40.08M</td><td>37.43M</td>
+            <td style="font-weight:bold;">33.91M</td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>36.25M</td><td>79.77M</td><td>48.34M</td><td>32.70M</td>
+            <td style="font-weight:bold;">49.27M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>38.19M</td><td>7.20M</td><td>6.89M</td><td>7.40M</td>
+            <td style="font-weight:bold;">14.92M</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>2.80M</td><td>1.59M</td><td>1.46M</td><td>1.31M</td>
+            <td style="font-weight:bold;">1.79M</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">Int Keys - Set</h3>
+    <div class="line-chart-container">
+        <canvas id="throughputIntSetChart"></canvas>
+    </div>
+
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">1T</th><th class="sortable">8T</th><th class="sortable">16T</th><th class="sortable">32T</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>16.08M</td><td>38.20M</td><td>21.11M</td><td>20.86M</td>
+            <td style="font-weight:bold;">24.06M</td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>19.39M</td><td>5.25M</td><td>4.55M</td><td>4.16M</td>
+            <td style="font-weight:bold;">8.34M</td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>3.22M</td><td>3.32M</td><td>2.34M</td><td>2.04M</td>
+            <td style="font-weight:bold;">2.73M</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>3.39M</td><td>1.72M</td><td>1.64M</td><td>1.81M</td>
+            <td style="font-weight:bold;">2.14M</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>3.29M</td><td>1.52M</td><td>1.17M</td><td>1.34M</td>
+            <td style="font-weight:bold;">1.83M</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+
+    
+    <h3 style="margin-top: 50px;">GetOrSet Operations</h3>
+    <p class="suite-description">Atomic get-or-compute operations with URL-like keys. Only caches supporting GetOrSet are shown.</p>
+    <div class="line-chart-container">
+        <canvas id="throughputGetOrSetChart"></canvas>
+    </div>
+
+    <h4>Results Table</h4>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">1T</th><th class="sortable">8T</th><th class="sortable">16T</th><th class="sortable">32T</th>
+            <th class="sortable">Avg</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>multicache</td>
+            <td>17.81M</td><td>55.89M</td><td>19.06M</td><td>24.62M</td>
+            <td style="font-weight:bold;">29.35M</td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>4.93M</td><td>30.86M</td><td>13.91M</td><td>15.96M</td>
+            <td style="font-weight:bold;">16.41M</td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>1.09M</td><td>1.13M</td><td>887K</td><td>1.43M</td>
+            <td style="font-weight:bold;">1.14M</td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>616K</td><td>659K</td><td>348K</td><td>476K</td>
+            <td style="font-weight:bold;">525K</td>
+        </tr>
+        
+        </tbody>
+    </table>
+    
+    </div>
+</div>
+
+
+
+<div class="collapsible-section" id="memory">
+    <div class="section-toggle" onclick="toggleSection(this)">
+        <h2>Memory Overhead Benchmarks</h2>
+        <span class="toggle-icon">▼</span>
+    </div>
+    <div class="section-content">
+        <p class="suite-description">Capacity: 32768 items, Value size: 1024 bytes. Measured in isolated processes. Overhead compared to baseline <code>map[string][]byte</code>. Lower is better.</p>
+
+    
+    
+    <h3>Memory Results</h3>
+    <table>
+        <thead>
+        <tr>
+            <th class="sortable">Cache</th>
+            <th class="sortable">Items Stored</th>
+            <th class="sortable">Memory (MB)</th>
+            <th class="sortable">Overhead vs map (bytes/item)</th>
+        </tr>
+        </thead>
+        <tbody>
+        
+        <tr>
+            <td>freelru-sync</td>
+            <td>32768</td>
+            <td>35.19</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: -6.993006993006993px"></div><span class="cell-value">-20</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>otter</td>
+            <td>32768</td>
+            <td>36.27</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 4.895104895104895px"></div><span class="cell-value">14</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>freelru-shard</td>
+            <td>31606</td>
+            <td>36.47</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 7.3426573426573425px"></div><span class="cell-value">21</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>clock</td>
+            <td>32768</td>
+            <td>37.00</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 12.937062937062937px"></div><span class="cell-value">37</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>lru</td>
+            <td>32768</td>
+            <td>37.50</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 18.53146853146853px"></div><span class="cell-value">53</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>2q</td>
+            <td>32768</td>
+            <td>37.50</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 18.53146853146853px"></div><span class="cell-value">53</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>s4lru</td>
+            <td>32768</td>
+            <td>38.26</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 27.27272727272727px"></div><span class="cell-value">78</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>theine</td>
+            <td>32768</td>
+            <td>38.46</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 29.37062937062937px"></div><span class="cell-value">84</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>sieve</td>
+            <td>32768</td>
+            <td>39.52</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 41.25874125874126px"></div><span class="cell-value">118</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>s3-fifo</td>
+            <td>32768</td>
+            <td>39.52</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 41.25874125874126px"></div><span class="cell-value">118</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>multicache</td>
+            <td>32768</td>
+            <td>39.63</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 42.30769230769231px"></div><span class="cell-value">121</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>tinylfu</td>
+            <td>32767</td>
+            <td>39.81</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 44.40559440559441px"></div><span class="cell-value">127</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>ttlcache</td>
+            <td>32768</td>
+            <td>40.79</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 55.59440559440559px"></div><span class="cell-value">159</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>ristretto</td>
+            <td>32768</td>
+            <td>41.39</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 62.23776223776224px"></div><span class="cell-value">178</span></div></td>
+        </tr>
+        
+        <tr>
+            <td>freecache</td>
+            <td>32764</td>
+            <td>44.76</td>
+            <td><div class="cell-bar-container"><div class="cell-bar" style="width: 100px"></div><span class="cell-value">286</span></div></td>
+        </tr>
+        
+        </tbody>
+    </table>
+    </div>
+</div>
+
+
+<script>
+function createLineChart(canvasId, labels, datasets, yLabel, useLogY = false) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+
+    const yAxisConfig = {
+        title: { display: true, text: yLabel },
+        beginAtZero: false
+    };
+
+    if (useLogY) {
+        yAxisConfig.type = 'logarithmic';
+        yAxisConfig.min = 1;
+        yAxisConfig.ticks = {
+            callback: function(value, index, ticks) {
+                if (value === 1 || value === 10 || value === 100 ||
+                    value === 5 || value === 50) {
+                    return value;
+                }
+                return null;
+            }
+        };
+    }
+
+    new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right' }
+            },
+            scales: {
+                y: yAxisConfig,
+                x: {
+                    title: { display: true, text: 'Cache Size' }
+                }
+            }
+        }
+    });
+}
+
+function makeSortable(table) {
+    const headers = table.querySelectorAll('th.sortable');
+    const tbody = table.querySelector('tbody') || table;
+
+    headers.forEach((header, index) => {
+        header.addEventListener('click', () => {
+            const currentSort = header.classList.contains('sorted-desc') ? 'desc' :
+                              header.classList.contains('sorted-asc') ? 'asc' : 'none';
+            const newSort = currentSort === 'desc' ? 'asc' : 'desc';
+
+            headers.forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+            header.classList.add(newSort === 'asc' ? 'sorted-asc' : 'sorted-desc');
+
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            rows.sort((a, b) => {
+                let aVal = a.cells[index].textContent.trim();
+                let bVal = b.cells[index].textContent.trim();
+
+                aVal = aVal.replace(/%|ns|K|M|MB/g, '');
+                bVal = bVal.replace(/%|ns|K|M|MB/g, '');
+
+                const aNum = parseFloat(aVal);
+                const bNum = parseFloat(bVal);
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                }
+
+                return newSort === 'asc' ?
+                    aVal.localeCompare(bVal) :
+                    bVal.localeCompare(aVal);
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('table').forEach(table => {
+        if (table.querySelector('th.sortable')) {
+            makeSortable(table);
+
+            const avgHeader = Array.from(table.querySelectorAll('th.sortable'))
+                .find(th => th.textContent.trim() === 'Avg' || th.textContent.trim() === 'Average');
+            if (avgHeader) {
+                avgHeader.click();
+            }
+        }
+    });
+
+    document.querySelectorAll('.toc a').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = document.querySelector(link.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({ block: 'start' });
+                const content = target.querySelector('.section-content');
+                const toggle = target.querySelector('.section-toggle');
+                if (content && content.classList.contains('collapsed')) {
+                    toggleSection(toggle);
+                }
+            }
+        });
+    });
+});
+
+function toggleSection(toggleElement) {
+    const content = toggleElement.nextElementSibling;
+    toggleElement.classList.toggle('collapsed');
+    content.classList.toggle('collapsed');
+}
+
+function initCharts() {
+
+
+
+createLineChart('cdnChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[55.93,57.28,58.47,59.58,60.51],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[54.67,55.21,56.11,57.26,58.97],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[54.35,55.26,55.39,55.81,59.31],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[54.90,56.52,57.94,59.35,60.53],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[35.16,36.95,38.54,39.33,42.56],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[54.14,55.35,56.08,56.82,58.25],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[55.63,56.95,58.25,59.30,60.59],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[55.69,56.95,58.33,59.61,60.55],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[54.89,56.51,57.94,59.34,60.53],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[54.90,56.52,57.94,59.35,60.53],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[53.85,55.48,56.98,58.56,59.98],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[55.57,57.02,58.35,59.56,60.61],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[55.42,56.64,57.79,58.82,59.67],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[55.09,56.68,58.14,59.42,60.57],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[54.90,56.52,57.94,59.35,60.53],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('metaChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[58.27,66.92,74.15,80.22,84.71],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[34.97,40.53,54.93,72.20,80.68],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[56.95,65.30,71.99,77.00,81.12],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[50.63,59.64,69.34,77.77,83.90],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[27.16,35.75,44.21,52.87,57.31],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[52.40,53.54,56.54,61.62,69.22],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[51.77,61.38,70.09,77.61,83.36],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[55.36,64.63,72.30,78.90,84.07],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[50.54,59.65,69.30,77.73,83.89],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[50.63,59.64,69.34,77.77,83.90],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[50.61,58.90,67.38,75.96,82.89],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[51.04,60.45,69.58,77.77,83.83],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[53.82,62.04,69.59,76.27,81.97],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[49.82,59.51,68.87,76.99,83.41],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[50.63,59.64,69.34,77.77,83.90],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('zipfChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[61.96,72.95,86.72,95.01,95.01],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[62.27,73.25,86.65,95.01,95.01],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[63.13,74.16,87.14,95.01,95.01],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[55.57,69.55,86.11,95.01,95.01],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[61.48,73.20,87.11,94.93,94.96],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[62.96,73.57,86.92,95.01,95.01],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[61.56,73.07,87.00,95.01,95.01],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[61.74,72.40,86.91,95.01,95.01],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[55.47,69.50,86.07,95.01,95.01],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[55.57,69.55,86.11,95.01,95.01],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[56.98,72.74,91.80,95.01,95.01],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[59.77,70.97,85.93,95.01,95.01],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[61.04,72.03,85.44,95.01,95.01],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[56.54,70.48,86.60,95.01,95.01],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[55.57,69.55,86.11,95.01,95.01],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('twitterChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[81.90,83.64,84.95,85.97,86.77],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[79.64,81.61,83.89,85.77,86.77],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[80.15,81.56,82.58,84.24,86.77],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[80.37,82.56,84.50,86.18,86.77],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[70.57,72.87,75.59,79.56,83.92],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[78.26,81.14,84.03,85.82,86.77],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[80.97,82.96,84.60,86.08,86.77],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[80.89,82.93,84.68,85.97,86.77],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[80.34,82.56,84.49,86.18,86.77],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[80.37,82.56,84.50,86.18,86.77],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[80.36,82.74,84.71,86.28,86.77],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[80.97,83.05,84.88,86.17,86.77],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[80.88,82.76,84.25,85.46,86.43],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[80.03,82.28,84.26,86.00,86.77],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[80.37,82.56,84.50,86.18,86.77],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('wikipediaChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[21.91,26.01,30.63,35.46,40.30],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[19.00,22.81,27.79,33.68,39.34],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[21.00,25.10,29.59,34.93,40.38],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[15.08,19.02,24.07,30.66,38.43],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[18.16,22.56,27.22,29.92,35.07],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[21.39,25.01,28.92,33.56,39.31],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[19.61,23.92,29.16,34.83,40.95],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[21.83,25.73,30.17,35.01,40.14],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[15.06,19.00,24.04,30.65,38.42],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[15.08,19.02,24.07,30.66,38.43],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[14.52,18.55,23.82,30.29,38.54],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[20.76,25.03,30.05,35.66,41.38],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[18.97,21.91,25.27,29.22,33.75],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[15.46,19.36,24.45,31.15,38.93],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[15.08,19.02,24.07,30.66,38.43],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('thesiosBlockChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[17.03,17.57,17.86,18.16,18.54],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[15.85,16.20,16.79,17.47,18.48],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[14.73,15.65,16.49,17.33,18.51],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[17.23,17.52,17.77,18.09,18.55],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[0.91,1.83,1.52,2.18,5.62],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[15.14,15.55,16.25,17.10,18.24],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[16.81,17.32,17.89,18.20,18.53],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[17.13,17.57,17.87,18.16,18.54],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[17.22,17.52,17.78,18.09,18.54],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[17.23,17.52,17.77,18.09,18.55],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[17.23,17.52,17.80,18.10,18.57],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[16.84,17.40,17.89,18.20,18.53],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[16.67,17.16,17.56,17.81,18.03],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[17.21,17.55,17.83,18.17,18.53],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[17.23,17.52,17.77,18.09,18.55],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('thesiosFileChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[86.92,88.01,88.38,88.38,88.38],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[85.95,87.74,88.38,88.38,88.38],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[79.65,86.89,88.38,88.38,88.38],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[87.06,87.80,88.38,88.38,88.38],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[33.97,59.72,64.02,63.15,58.78],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[86.61,87.88,88.38,88.38,88.38],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[86.99,88.10,88.38,88.38,88.38],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[86.82,88.01,88.38,88.38,88.38],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[87.05,87.83,88.38,88.38,88.38],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[87.06,87.80,88.38,88.38,88.38],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[86.93,87.87,88.38,88.38,88.38],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[87.06,87.85,88.38,88.38,88.38],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[86.96,88.05,88.38,88.38,88.38],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[86.87,88.05,88.38,88.38,88.38],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[87.06,87.80,88.38,88.38,88.38],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('ibmDockerChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[82.05,82.93,83.19,83.27,83.27],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[80.66,81.73,82.79,83.27,83.27],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[80.70,82.08,82.72,83.27,83.27],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[82.36,82.85,83.15,83.27,83.27],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[77.60,79.84,81.69,82.91,83.09],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[80.52,81.33,82.34,83.27,83.27],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[81.74,83.01,83.22,83.27,83.27],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[82.23,82.94,83.19,83.27,83.27],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[82.35,82.85,83.15,83.27,83.27],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[82.36,82.85,83.15,83.27,83.27],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[82.10,82.70,83.08,83.27,83.27],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[82.22,83.01,83.22,83.27,83.27],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[81.78,82.60,82.94,83.19,83.24],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[82.48,82.92,83.22,83.27,83.27],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[82.36,82.85,83.15,83.27,83.27],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+createLineChart('tencentPhotoChart', ["16K","32K","64K","128K","256K"], [{label:"multicache",data:[13.84,16.10,19.06,22.92,26.82],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[12.29,14.39,16.81,19.71,22.92],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[13.37,15.38,17.62,20.26,23.48],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[9.64,13.20,17.30,21.62,25.92],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[10.54,12.75,14.93,16.22,17.69],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[13.42,14.99,16.76,19.08,22.23],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[12.80,15.09,18.15,22.51,26.96],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[13.62,15.82,18.89,22.94,26.74],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[9.60,13.18,17.29,21.61,25.91],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[9.64,13.20,17.30,21.62,25.92],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[8.87,12.32,16.35,20.77,24.95],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[13.48,15.82,18.95,22.83,27.12],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[11.88,13.60,15.94,18.94,22.37],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[9.89,13.53,17.60,21.88,26.16],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[9.64,13.20,17.30,21.62,25.92],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'Hit Rate (%)', false);
+
+
+
+
+
+
+createLineChart('throughputStringGetChart', ["1T","8T","16T","32T"], [{label:"multicache",data:[16563000,59999000,25055000,32107000],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[9660000,51592000,38931000,41507000],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[3718000,43256000,26709000,31952000],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[2554000,1680000,1727000,1140000],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[6762000,15747000,20769000,17097000],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[6025000,2701000,2461000,2598000],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[14934000,3947000,3636000,3739000],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[10009000,3418000,2842000,2640000],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[10951000,19671000,16026000,12486000],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[10296000,4271000,3727000,4245000],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[12777000,14776000,13748000,13710000],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[9016000,3329000,2527000,2232000],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[11368000,3644000,4088000,4575000],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[13645000,3244000,2393000,3467000],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[9732000,3055000,2205000,1895000],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'QPS');
+
+
+createLineChart('throughputStringSetChart', ["1T","8T","16T","32T"], [{label:"multicache",data:[5664000,15903000,20112000,13380000],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[2395000,1337000,1365000,1391000],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[2384000,2670000,2131000,1837000],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[2851000,1936000,2215000,2272000],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ristretto",data:[1973000,1259000,2116000,2466000],borderColor:"#7B1FA2",backgroundColor:"#7B1FA2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"tinylfu",data:[1457000,851000,857000,843000],borderColor:"#C2185B",backgroundColor:"#C2185B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"sieve",data:[1931000,1674000,2145000,2401000],borderColor:"#5D4037",backgroundColor:"#5D4037",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s3-fifo",data:[3198000,1400000,1475000,1836000],borderColor:"#455A64",backgroundColor:"#455A64",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[9668000,16343000,7923000,11369000],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-sync",data:[9028000,3077000,2640000,3806000],borderColor:"#00796B",backgroundColor:"#00796B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[764000,3884000,2968000,1327000],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"2q",data:[3751000,1587000,2241000,3046000],borderColor:"#E64A19",backgroundColor:"#E64A19",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"s4lru",data:[4668000,1923000,1801000,1735000],borderColor:"#512DA8",backgroundColor:"#512DA8",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"clock",data:[6544000,2529000,2584000,4766000],borderColor:"#00695C",backgroundColor:"#00695C",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"lru",data:[6337000,2841000,3099000,3613000],borderColor:"#AFB42B",backgroundColor:"#AFB42B",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'QPS');
+
+
+createLineChart('throughputIntGetChart', ["1T","8T","16T","32T"], [{label:"multicache",data:[36253000,79765000,48341000,32703000],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[13294000,69695000,53590000,55267000],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[4556000,53592000,40076000,37426000],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[2801000,1593000,1455000,1312000],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[38190000,7196000,6887000,7397000],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'QPS');
+
+
+createLineChart('throughputIntSetChart', ["1T","8T","16T","32T"], [{label:"multicache",data:[16081000,38205000,21111000,20858000],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[3287000,1518000,1171000,1343000],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"theine",data:[3223000,3324000,2344000,2039000],borderColor:"#D32F2F",backgroundColor:"#D32F2F",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[3392000,1716000,1637000,1811000],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freelru-shard",data:[19389000,5245000,4553000,4161000],borderColor:"#0288D1",backgroundColor:"#0288D1",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'QPS');
+
+
+createLineChart('throughputGetOrSetChart', ["1T","8T","16T","32T"], [{label:"multicache",data:[17808000,55891000,19062000,24620000],borderColor:"#2E7D32",backgroundColor:"#2E7D32",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"otter",data:[4930000,30859000,13906000,15963000],borderColor:"#1976D2",backgroundColor:"#1976D2",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"ttlcache",data:[1094000,1130000,887000,1433000],borderColor:"#0097A7",backgroundColor:"#0097A7",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4},{label:"freecache",data:[616000,659000,348000,476000],borderColor:"#F57C00",backgroundColor:"#F57C00",tension:0.1,fill:false,borderWidth:1.5,pointRadius:2,pointHoverRadius:4}], 'QPS');
+
+
+}
+
+(function waitForChartAndDOM() {
+    if (typeof Chart !== 'undefined' && document.getElementById('cdnChart')) {
+        initCharts();
+    } else if (document.readyState === 'complete' && typeof Chart !== 'undefined') {
+        initCharts();
+    } else {
+        setTimeout(waitForChartAndDOM, 100);
+    }
+})();
+</script>
+
+<footer>
+    <a href="https://github.com/tstromberg/gocachemark">gocachemark</a> ·
+    Caches: <a href="https://github.com/codeGROOVE-dev/multicache">multicache</a>,
+    <a href="https://github.com/maypok86/otter">otter</a>,
+    <a href="https://github.com/dgraph-io/ristretto">ristretto</a>,
+    <a href="https://github.com/coocood/freecache">freecache</a>,
+    <a href="https://github.com/hashicorp/golang-lru">lru</a>,
+    <a href="https://github.com/Yiling-J/theine-go">theine</a>,
+    <a href="https://github.com/cespare/xxhash">tinylfu</a>,
+    <a href="https://github.com/jellydator/ttlcache">ttlcache</a>
+</footer>
+
+</body>
+</html>

@@ -10,15 +10,14 @@ import (
 	"unsafe"
 )
 
-// wyhash constants for fast string hashing.
+// wyhash constants.
 const (
 	wyp0 = 0xa0761d6478bd642f
 	wyp1 = 0xe7037ed1a0b428db
 )
 
-// wyhashString is a fast hash function for strings.
-// Adapted from wyhash (https://github.com/wangyi-fudan/wyhash).
-// About 2.6x faster than maphash.String with acceptable distribution.
+// wyhashString hashes a string using wyhash.
+// ~2.6x faster than maphash.String.
 func wyhashString(s string) uint64 {
 	n := len(s)
 	if n == 0 {
@@ -48,85 +47,57 @@ func wyhashString(s string) uint64 {
 
 const maxShards = 2048
 
-// maxFreq is the maximum frequency counter value (0-7).
-// Higher values give better resolution for distinguishing hot items.
+// maxFreq caps the frequency counter at 7.
 const maxFreq = 7
 
-// s3fifo implements the S3-FIFO eviction algorithm from SOSP'23 paper
-// "FIFO queues are all you need for cache eviction"
+// s3fifo implements the S3-FIFO cache eviction algorithm.
+// See "FIFO queues are all you need for cache eviction" (SOSP'23).
 //
-// This implementation uses dynamic sharding for improved concurrent performance.
-// The number of shards is determined by capacity to ensure each shard has enough
-// entries for the S3-FIFO algorithm to work effectively.
-// Each shard is an independent S3-FIFO instance with its own queues and lock.
+// Each shard maintains three queues:
+//   - Small (~10%): new entries
+//   - Main (~90%): promoted entries
+//   - Ghost: recently evicted keys (bloom filter, no values)
 //
-// Algorithm per shard:
-// - Small queue (S): ~10% of shard capacity, for new entries
-// - Main queue (M): ~90% of shard capacity, for promoted entries
-// - Ghost queue (G): Tracks evicted keys (no data)
-//
-// On cache miss:
-//   - If entry not in ghost → insert into Small
-//   - If entry in ghost → insert into Main (was accessed before)
-//
-// On eviction from Small:
-//   - If freq == 0 → evict and add to ghost
-//   - If freq > 0 → promote to Main and reset freq to 0
-//
-// On eviction from Main:
-//   - If freq == 0 → evict (don't add to ghost, already there)
-//   - If freq > 0 → reinsert to back of Main and decrement freq (lazy promotion)
+// New keys go to Small; keys in Ghost go directly to Main.
+// Eviction from Small promotes warm entries (freq>0) to Main.
+// Eviction from Main gives warm entries a second chance.
 
 type s3fifo[K comparable, V any] struct {
-	shards      []*shard[K, V]
-	numShards   int
-	shardMask   uint64 // For fast modulo via bitwise AND
-	keyIsInt    bool   // Fast path flag for int keys
-	keyIsInt64  bool   // Fast path flag for int64 keys
-	keyIsString bool   // Fast path flag for string keys
-
-	// Global capacity tracking ensures exactly Size() entries can be stored,
-	// regardless of hash distribution across shards.
+	shards       []*shard[K, V]
+	numShards    int
+	shardMask    uint64 // numShards-1 for fast modulo
+	keyIsInt     bool
+	keyIsInt64   bool
+	keyIsString  bool
 	totalEntries atomic.Int64
 	capacity     int
 }
 
-// shard is an independent S3-FIFO cache partition.
-// Uses RWMutex for read-heavy workloads; sharding reduces contention across goroutines.
-// The entries map provides O(1) lookup while intrusive lists maintain queue order.
+// shard is one partition of the cache. Each has its own lock and queues.
 //
-//nolint:govet // fieldalignment: padding is intentional to prevent false sharing
+//nolint:govet // fieldalignment: padding prevents false sharing
 type shard[K comparable, V any] struct {
-	mu      sync.RWMutex       // RWMutex is faster for read-heavy workloads with sharding
-	_       [40]byte           // Padding to cache line boundary
-	entries map[K]*entry[K, V] // Direct map access (protected by mu)
-	small   entryList[K, V]    // Intrusive list for small queue
-	main    entryList[K, V]    // Intrusive list for main queue
+	mu      sync.RWMutex
+	_       [40]byte // pad to cache line
+	entries map[K]*entry[K, V]
+	small   entryList[K, V]
+	main    entryList[K, V]
 
-	// Two-stage Bloom filter ghost: tracks recently evicted keys with low memory overhead.
-	// Two filters rotate to provide approximate FIFO.
-	// When ghostActive fills up, ghostAging is cleared and they swap roles.
+	// Ghost uses two rotating bloom filters for approximate FIFO eviction tracking.
 	ghostActive     *bloomFilter
 	ghostAging      *bloomFilter
-	ghostFreqActive map[uint64]uint32 // Frequency at eviction time (rotates with bloom)
+	ghostFreqActive map[uint64]uint32 // freq at eviction, for restoring returning keys
 	ghostFreqAging  map[uint64]uint32
 	ghostCap        int
 	hasher          func(K) uint64
 
-	capacity int
-
-	// Free list for reducing allocations
-	freeEntries *entry[K, V]
-
-	// Warmup: during initial fill, admit everything without eviction checks
-	warmupComplete bool
-
-	// Parent pointer for global capacity tracking
-	parent *s3fifo[K, V]
+	capacity       int
+	freeEntries    *entry[K, V] // reuse pool
+	warmupComplete bool         // skip eviction until first fill
+	parent         *s3fifo[K, V]
 }
 
-// entryList is an intrusive doubly-linked list for cache entries.
-// Zero value is a valid empty list.
+// entryList is an intrusive doubly-linked list. Zero value is valid.
 type entryList[K comparable, V any] struct {
 	head *entry[K, V]
 	tail *entry[K, V]
@@ -161,7 +132,6 @@ func (l *entryList[K, V]) remove(e *entry[K, V]) {
 	l.len--
 }
 
-// timeToNano converts a time.Time to Unix nanoseconds, returning 0 for zero time.
 func timeToNano(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
@@ -169,39 +139,36 @@ func timeToNano(t time.Time) int64 {
 	return t.UnixNano()
 }
 
-// entry represents a cached value with metadata.
+// entry is a cached key-value pair with eviction metadata.
 type entry[K comparable, V any] struct {
 	key        K
 	value      V
-	prev       *entry[K, V] // Intrusive list pointers
+	prev       *entry[K, V]
 	next       *entry[K, V]
-	expiryNano int64         // Unix nanoseconds; 0 means no expiry
-	freq       atomic.Uint32 // Frequency counter (0-7) for S3-FIFO eviction decisions; atomic for lock-free reads
-	peakFreq   atomic.Uint32 // Peak frequency achieved (for ghost restore); atomic for lock-free updates
-	inSmall    bool          // True if in Small queue, false if in Main
+	expiryNano int64         // 0 means no expiry
+	freq       atomic.Uint32 // access count, capped at maxFreq
+	peakFreq   atomic.Uint32 // max freq seen, for ghost restore
+	inSmall    bool
 }
 
-// newS3FIFO creates a new sharded S3-FIFO cache with the given total capacity.
 func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 	capacity := cfg.size
 	if capacity <= 0 {
 		capacity = 16384
 	}
 
-	// More shards reduces lock contention, but too many shards causes capacity
-	// loss due to hash distribution imbalance. Use 2x GOMAXPROCS as a balance
-	// between concurrency and capacity efficiency.
-	minShards := runtime.GOMAXPROCS(0) * 2
-	// Each shard needs enough entries for good hash distribution (95%+ efficiency).
-	// With 256 entries per shard, hash variance is diluted enough for consistent efficiency.
-	const minEntriesPerShard = 256
+	// Sharding reduces RWMutex contention at high thread counts.
+	// Empirically tested (Dec 2024): 256 shards optimal for 64K cache at 32T.
+	// Formula: max(GOMAXPROCS*16, capacity/256) balances shard count vs S3-FIFO queue size.
+	// At 16 cores / 64K cache: 256 shards, 256 entries/shard → 189M ops/sec (vs 128M with 64 shards).
+	targetShards := max(runtime.GOMAXPROCS(0)*16, capacity/256)
+	const minEntriesPerShard = 256 // fewer entries per shard hurts S3-FIFO eviction accuracy
 	maxByCapacity := max(1, capacity/minEntriesPerShard)
-	nshards := min(minShards, maxByCapacity, maxShards)
-	// Round to power of 2 for fast modulo.
+	nshards := min(targetShards, maxByCapacity, maxShards)
 	//nolint:gosec // G115: nshards bounded by [1, maxShards]
-	nshards = 1 << (bits.Len(uint(nshards)) - 1)
+	nshards = 1 << (bits.Len(uint(nshards)) - 1) // round to power of 2
 
-	shardCap := (capacity + nshards - 1) / nshards // ceiling division
+	shardCap := (capacity + nshards - 1) / nshards
 
 	cache := &s3fifo[K, V]{
 		shards:    make([]*shard[K, V], nshards),
@@ -211,10 +178,9 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		capacity:  capacity,
 	}
 
-	// Detect key type at construction time to enable fast-path hash functions.
-	// This avoids the type switch overhead on every Get/Set call.
-	var zeroKey K
-	switch any(zeroKey).(type) {
+	// Detect key type once to avoid type switch on every operation.
+	var zk K
+	switch any(zk).(type) {
 	case int:
 		cache.keyIsInt = true
 	case int64:
@@ -223,10 +189,8 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		cache.keyIsString = true
 	}
 
-	// Ghost queue at 100% of shard capacity matches reference implementation.
-	const ghostRatio = 1.0
+	const ghostRatio = 1.0 // ghost size as fraction of shard capacity
 
-	// Prepare hasher for Bloom filter
 	var hasher func(K) uint64
 	switch {
 	case cache.keyIsInt:
@@ -302,10 +266,8 @@ func (s *shard[K, V]) freeEntry(e *entry[K, V]) {
 	s.freeEntries = e
 }
 
-// shard returns the shard for a given key using type-optimized hashing.
-// Uses bitwise AND with shardMask for fast modulo (numShards must be power of 2).
+// shard returns the shard for key.
 func (c *s3fifo[K, V]) shard(key K) *shard[K, V] {
-	// Fast paths for common key types avoid type switch overhead.
 	if c.keyIsInt {
 		//nolint:gosec // G115: intentional wrap for fast modulo
 		return c.shards[uint64(*(*int)(unsafe.Pointer(&key)))&c.shardMask]
@@ -317,7 +279,6 @@ func (c *s3fifo[K, V]) shard(key K) *shard[K, V] {
 	if c.keyIsString {
 		return c.shards[wyhashString(*(*string)(unsafe.Pointer(&key)))&c.shardMask]
 	}
-	// Fallback for other key types
 	switch k := any(key).(type) {
 	case uint:
 		return c.shards[uint64(k)&c.shardMask]
@@ -332,9 +293,7 @@ func (c *s3fifo[K, V]) shard(key K) *shard[K, V] {
 	}
 }
 
-// get retrieves a value from the cache.
-// On hit, increments frequency counter (used during eviction).
-// Uses RLock for full read parallelism - eviction sampling approximates LRU.
+// get retrieves a value, incrementing its frequency on hit.
 func (c *s3fifo[K, V]) get(key K) (V, bool) {
 	if c.keyIsString {
 		s := c.shards[wyhashString(*(*string)(unsafe.Pointer(&key)))&c.shardMask]
@@ -356,7 +315,6 @@ func (c *s3fifo[K, V]) get(key K) (V, bool) {
 
 		if ent.freq.Load() < maxFreq {
 			newFreq := ent.freq.Add(1)
-			// Track peak frequency for ghost restore (best-effort, CAS-free for perf)
 			if newFreq > ent.peakFreq.Load() {
 				ent.peakFreq.Store(newFreq)
 			}
@@ -384,7 +342,6 @@ func (c *s3fifo[K, V]) get(key K) (V, bool) {
 
 		if ent.freq.Load() < maxFreq {
 			newFreq := ent.freq.Add(1)
-			// Track peak frequency for ghost restore (best-effort, CAS-free for perf)
 			if newFreq > ent.peakFreq.Load() {
 				ent.peakFreq.Store(newFreq)
 			}
@@ -402,33 +359,25 @@ func (s *shard[K, V]) get(key K) (V, bool) {
 		var zero V
 		return zero, false
 	}
-
-	// Read values while holding lock to avoid race with concurrent set()
 	val := ent.value
 	expiry := ent.expiryNano
 	s.mu.RUnlock()
 
-	// Check expiration (lazy - actual cleanup happens in background)
 	if expiry != 0 && time.Now().UnixNano() > expiry {
 		var zero V
 		return zero, false
 	}
 
-	// S3-FIFO: increment frequency for promotion decisions.
-	// Skip if already at max to reduce contention on hot keys.
 	if ent.freq.Load() < maxFreq {
 		newFreq := ent.freq.Add(1)
-		// Track peak frequency for ghost restore (best-effort, CAS-free for perf)
 		if newFreq > ent.peakFreq.Load() {
 			ent.peakFreq.Store(newFreq)
 		}
 	}
-
 	return val, true
 }
 
-// set adds or updates a value in the cache.
-// expiryNano is Unix nanoseconds; 0 means no expiry.
+// set adds or updates a value. expiryNano of 0 means no expiry.
 func (c *s3fifo[K, V]) set(key K, value V, expiryNano int64) {
 	if c.keyIsString {
 		h := wyhashString(*(*string)(unsafe.Pointer(&key)))
@@ -443,17 +392,15 @@ func (c *s3fifo[K, V]) set(key K, value V, expiryNano int64) {
 	c.shard(key).setWithHash(key, value, expiryNano, 0)
 }
 
-// setWithHash adds or updates a value. Hash is pre-computed for string keys (0 = compute when needed).
+// setWithHash adds or updates a value. hash=0 means compute when needed.
 func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64) {
 	s.mu.Lock()
 
-	// Fast path: update existing entry
 	if ent, ok := s.entries[key]; ok {
 		ent.value = value
 		ent.expiryNano = expiryNano
 		if ent.freq.Load() < maxFreq {
 			newFreq := ent.freq.Add(1)
-			// Track peak frequency for ghost restore
 			if newFreq > ent.peakFreq.Load() {
 				ent.peakFreq.Store(newFreq)
 			}
@@ -462,18 +409,14 @@ func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64)
 		return
 	}
 
-	// Slow path: insert new key (already holding lock)
-
-	// Create new entry
 	ent := s.allocEntry()
 	ent.key = key
 	ent.value = value
 	ent.expiryNano = expiryNano
 
-	// Check if cache is at capacity
 	full := s.parent.totalEntries.Load() >= int64(s.parent.capacity)
 
-	// Warmup Bypass: During warmup, admit everything to small queue without eviction
+	// During warmup, skip eviction logic.
 	if !s.warmupComplete && !full {
 		ent.inSmall = true
 		s.small.pushBack(ent)
@@ -482,13 +425,10 @@ func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64)
 		s.mu.Unlock()
 		return
 	}
-	// Mark warmup complete once we've reached capacity
 	s.warmupComplete = true
 
-	// Lazily check ghost only if at capacity (when eviction matters)
-	// This saves 2× bloom filter checks + hash computation when cache isn't full
+	// Only check ghost when full (saves bloom lookups during fill).
 	if full {
-		// Use pre-computed hash if provided, otherwise compute
 		h := hash
 		if h == 0 {
 			h = s.hasher(key)
@@ -496,7 +436,7 @@ func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64)
 		inGhost := s.ghostActive.Contains(h) || s.ghostAging.Contains(h)
 		ent.inSmall = !inGhost
 
-		// Restore 50% of peak frequency for ghost returns
+		// Ghost hits restore half their previous frequency.
 		if inGhost {
 			var peak uint32
 			if f, ok := s.ghostFreqActive[h]; ok {
@@ -510,18 +450,15 @@ func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64)
 			}
 		}
 
-		// Evict one entry to make room
 		if s.main.len > 0 && s.small.len <= s.capacity/10 {
 			s.evictFromMain()
 		} else if s.small.len > 0 {
 			s.evictFromSmall()
 		}
 	} else {
-		// Cache not full, always insert to small queue
 		ent.inSmall = true
 	}
 
-	// Add to appropriate queue
 	if ent.inSmall {
 		s.small.pushBack(ent)
 	} else {
@@ -533,7 +470,6 @@ func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64)
 	s.mu.Unlock()
 }
 
-// del removes a value from the cache.
 func (c *s3fifo[K, V]) del(key K) {
 	c.shard(key).delete(key)
 }
@@ -558,13 +494,11 @@ func (s *shard[K, V]) delete(key K) {
 	s.parent.totalEntries.Add(-1)
 }
 
-// addToGhost records an evicted key in the ghost queue for future admission decisions.
-// Rotates ghost filters when capacity is reached.
+// addToGhost records an evicted key for future admission decisions.
 func (s *shard[K, V]) addToGhost(key K, peakFreq uint32) {
 	h := s.hasher(key)
 	if !s.ghostActive.Contains(h) {
 		s.ghostActive.Add(h)
-		// Only track frequency for items that will restore to >=1 (saves map writes)
 		if peakFreq >= 2 {
 			s.ghostFreqActive[h] = peakFreq
 		}
@@ -577,7 +511,7 @@ func (s *shard[K, V]) addToGhost(key K, peakFreq uint32) {
 	}
 }
 
-// evictFromSmall evicts from small queue. Cold (freq<2) are evicted; warm are promoted.
+// evictFromSmall evicts cold entries (freq<2) or promotes warm ones to main.
 func (s *shard[K, V]) evictFromSmall() {
 	mcap := (s.capacity * 9) / 10
 
@@ -594,7 +528,7 @@ func (s *shard[K, V]) evictFromSmall() {
 			return
 		}
 
-		// Warm: promote to main
+		// Promote to main.
 		s.small.remove(e)
 		e.freq.Store(0)
 		e.inSmall = false
@@ -606,7 +540,7 @@ func (s *shard[K, V]) evictFromSmall() {
 	}
 }
 
-// evictFromMain evicts from main queue. Cold (freq==0) are evicted; warm get second chance.
+// evictFromMain evicts cold entries (freq==0) or gives warm ones a second chance.
 func (s *shard[K, V]) evictFromMain() {
 	for s.main.len > 0 {
 		e := s.main.head
@@ -621,14 +555,13 @@ func (s *shard[K, V]) evictFromMain() {
 			return
 		}
 
-		// Second chance: decrement and move to back
+		// Second chance.
 		s.main.remove(e)
 		e.freq.Store(f - 1)
 		s.main.pushBack(e)
 	}
 }
 
-// len returns the total number of entries across all shards.
 func (c *s3fifo[K, V]) len() int {
 	total := 0
 	for i := range c.shards {
@@ -640,13 +573,11 @@ func (c *s3fifo[K, V]) len() int {
 	return total
 }
 
-// flush removes all entries from all shards.
 func (c *s3fifo[K, V]) flush() int {
 	total := 0
 	for i := range c.shards {
 		total += c.shards[i].flush()
 	}
-	// Reset global counter
 	c.totalEntries.Store(0)
 	return total
 }

@@ -1,4 +1,4 @@
-// Package multicache provides a high-performance adaptive cache with optional persistence.
+// Package multicache provides a high-performance cache with optional persistence.
 package multicache
 
 import (
@@ -8,17 +8,15 @@ import (
 
 const numFlightShards = 256
 
-// Cache is a fast in-memory cache without persistence.
-// All operations are context-free and never return errors.
+// Cache is an in-memory cache. All operations are synchronous and infallible.
 type Cache[K comparable, V any] struct {
 	flights    [numFlightShards]flightGroup[K, V]
 	memory     *s3fifo[K, V]
 	defaultTTL time.Duration
-	noExpiry   bool // skip expiry calc when defaultTTL == 0
+	noExpiry   bool
 }
 
-// flightGroup prevents thundering herd for a set of keys.
-// Unlike singleflight, it uses the key type directly to avoid string conversion.
+// flightGroup deduplicates concurrent calls for the same key.
 //
 //nolint:govet // fieldalignment: semantic grouping preferred
 type flightGroup[K comparable, V any] struct {
@@ -32,23 +30,22 @@ type flightCall[V any] struct {
 	wg     sync.WaitGroup
 	val    V
 	err    error
-	shared bool // true if other goroutines are waiting on this call
+	shared bool
 }
 
-// do executes fn once per key, with concurrent callers waiting for the result.
+// do executes fn once per key; concurrent callers share the result.
 func (g *flightGroup[K, V]) do(key K, fn func() (V, error)) (V, error) {
 	g.mu.Lock()
 	if g.calls == nil {
 		g.calls = make(map[K]*flightCall[V])
 	}
 	if c, ok := g.calls[key]; ok {
-		c.shared = true // Mark that others are waiting
+		c.shared = true
 		g.mu.Unlock()
 		c.wg.Wait()
 		return c.val, c.err
 	}
 
-	// Get from pool or allocate
 	var c *flightCall[V]
 	if pooled, ok := g.pool.Get().(*flightCall[V]); ok && pooled != nil {
 		c = pooled
@@ -69,7 +66,6 @@ func (g *flightGroup[K, V]) do(key K, fn func() (V, error)) (V, error) {
 
 	val, err := c.val, c.err
 
-	// Only pool if no waiters (they still need to read c.val/c.err)
 	if !shared {
 		var zero V
 		c.val = zero
@@ -81,19 +77,7 @@ func (g *flightGroup[K, V]) do(key K, fn func() (V, error)) (V, error) {
 	return val, err
 }
 
-// New creates a new in-memory cache.
-//
-// Example:
-//
-//	cache := multicache.New[string, User](
-//	    multicache.Size(10000),
-//	    multicache.TTL(time.Hour),
-//	)
-//	defer cache.Close()
-//
-//	cache.Set("user:123", user)              // uses default TTL
-//	cache.Set("user:123", user, time.Hour)   // explicit TTL
-//	user, ok := cache.Get("user:123")
+// New creates an in-memory cache.
 func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 	cfg := defaultConfig()
 	for _, opt := range opts {
@@ -107,17 +91,13 @@ func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 	}
 }
 
-// Get retrieves a value from the cache.
-// Returns the value and true if found, or the zero value and false if not found.
+// Get returns the value for key, or zero and false if not found.
 func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return c.memory.get(key)
 }
 
-// Set stores a value in the cache.
-// If no TTL is provided, the default TTL is used.
-// If no default TTL is configured, the entry never expires.
+// Set stores a value. Uses default TTL if none provided.
 func (c *Cache[K, V]) Set(key K, value V, ttl ...time.Duration) {
-	// Fast path when no TTL is configured and none passed.
 	if c.noExpiry && len(ttl) == 0 {
 		c.memory.set(key, value, 0)
 		return
@@ -129,14 +109,12 @@ func (c *Cache[K, V]) Set(key K, value V, ttl ...time.Duration) {
 	c.memory.set(key, value, timeToNano(c.expiry(t)))
 }
 
-// Delete removes a value from the cache.
+// Delete removes a key from the cache.
 func (c *Cache[K, V]) Delete(key K) {
 	c.memory.del(key)
 }
 
-// SetIfAbsent stores value only if key doesn't exist.
-// Returns the existing value and true if found, or the new value and false if stored.
-// Unlike GetSet, this has no thundering herd protection - use when value is precomputed.
+// SetIfAbsent stores value only if key is missing. No deduplication.
 func (c *Cache[K, V]) SetIfAbsent(key K, value V, ttl ...time.Duration) (V, bool) {
 	if val, ok := c.memory.get(key); ok {
 		return val, true
@@ -149,41 +127,24 @@ func (c *Cache[K, V]) SetIfAbsent(key K, value V, ttl ...time.Duration) (V, bool
 	return value, false
 }
 
-// GetSet retrieves a value from the cache, or calls loader to compute and store it.
-// This prevents thundering herd: if multiple goroutines request the same missing key
-// concurrently, only one loader runs while others wait for its result.
-//
-// Example:
-//
-//	user, err := cache.GetSet("user:123", func() (User, error) {
-//	    return fetchUserFromDB("123")
-//	})
-//
-//	// Or with explicit TTL:
-//	user, err := cache.GetSet("user:123", func() (User, error) {
-//	    return fetchUserFromDB("123")
-//	}, time.Hour)
+// GetSet returns cached value or calls loader to compute it.
+// Concurrent calls for the same key share one loader invocation.
 func (c *Cache[K, V]) GetSet(key K, loader func() (V, error), ttl ...time.Duration) (V, error) {
-	// Fast path: check cache first
 	if val, ok := c.memory.get(key); ok {
 		return val, nil
 	}
 
-	// Slow path: use flight group to ensure only one loader runs per key
 	idx := flightShard(key)
 	return c.flights[idx].do(key, func() (V, error) {
-		// Double-check: another goroutine may have populated the cache
 		if val, ok := c.memory.get(key); ok {
 			return val, nil
 		}
 
-		// Call loader
 		val, err := loader()
 		if err != nil {
 			return val, err
 		}
 
-		// Store in cache
 		var t time.Duration
 		if len(ttl) > 0 {
 			t = ttl[0]
@@ -194,8 +155,6 @@ func (c *Cache[K, V]) GetSet(key K, loader func() (V, error), ttl ...time.Durati
 	})
 }
 
-// flightShard returns a shard index for a key.
-// Uses fast paths for common types.
 func flightShard[K comparable](key K) int {
 	switch k := any(key).(type) {
 	case int:
@@ -211,24 +170,19 @@ func flightShard[K comparable](key K) int {
 	}
 }
 
-// Len returns the number of entries in the cache.
+// Len returns the number of entries.
 func (c *Cache[K, V]) Len() int {
 	return c.memory.len()
 }
 
-// Flush removes all entries from the cache.
-// Returns the number of entries removed.
+// Flush removes all entries. Returns count removed.
 func (c *Cache[K, V]) Flush() int {
 	return c.memory.flush()
 }
 
-// Close releases resources held by the cache.
-// For Cache this is a no-op, but provided for API consistency.
-func (*Cache[K, V]) Close() {
-	// No-op for memory-only cache
-}
+// Close is a no-op for Cache (provided for API symmetry with TieredCache).
+func (*Cache[K, V]) Close() {}
 
-// expiry returns the expiry time based on TTL and default TTL.
 func (c *Cache[K, V]) expiry(ttl time.Duration) time.Time {
 	if ttl <= 0 {
 		ttl = c.defaultTTL
@@ -239,34 +193,24 @@ func (c *Cache[K, V]) expiry(ttl time.Duration) time.Time {
 	return time.Now().Add(ttl)
 }
 
-// config holds configuration for Cache.
 type config struct {
 	size       int
 	defaultTTL time.Duration
 }
 
 func defaultConfig() *config {
-	return &config{
-		size: 16384, // 2^14, divides evenly by numShards
-	}
+	return &config{size: 16384}
 }
 
 // Option configures a Cache.
 type Option func(*config)
 
-// Size sets the maximum number of entries in the memory cache.
-// Default is 16384.
+// Size sets maximum entries. Default 16384.
 func Size(n int) Option {
-	return func(c *config) {
-		c.size = n
-	}
+	return func(c *config) { c.size = n }
 }
 
-// TTL sets the default TTL for cache entries.
-// Entries without an explicit TTL will use this value.
-// Default is 0 (no expiration).
+// TTL sets default expiration. Default 0 (none).
 func TTL(d time.Duration) Option {
-	return func(c *config) {
-		c.defaultTTL = d
-	}
+	return func(c *config) { c.defaultTTL = d }
 }
