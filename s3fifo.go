@@ -76,6 +76,7 @@ const maxFreq = 7
 // On eviction from Main:
 //   - If freq == 0 → evict (don't add to ghost, already there)
 //   - If freq > 0 → reinsert to back of Main and decrement freq (lazy promotion)
+
 type s3fifo[K comparable, V any] struct {
 	shards      []*shard[K, V]
 	numShards   int
@@ -433,7 +434,8 @@ func (s *shard[K, V]) get(key K) (V, bool) {
 // expiryNano is Unix nanoseconds; 0 means no expiry.
 func (c *s3fifo[K, V]) set(key K, value V, expiryNano int64) {
 	if c.keyIsString {
-		c.shards[wyhashString(*(*string)(unsafe.Pointer(&key)))&c.shardMask].set(key, value, expiryNano)
+		h := wyhashString(*(*string)(unsafe.Pointer(&key)))
+		c.shards[h&c.shardMask].setWithHash(key, value, expiryNano, h)
 		return
 	}
 	if c.keyIsInt {
@@ -445,6 +447,12 @@ func (c *s3fifo[K, V]) set(key K, value V, expiryNano int64) {
 }
 
 func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
+	s.setWithHash(key, value, expiryNano, 0)
+}
+
+// setWithHash is like set but accepts a pre-computed hash for ghost checks.
+// If hash is 0, it will be computed when needed.
+func (s *shard[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64) {
 	s.mu.Lock()
 
 	// Fast path: update existing entry
@@ -488,8 +496,11 @@ func (s *shard[K, V]) set(key K, value V, expiryNano int64) {
 	// Lazily check ghost only if at capacity (when eviction matters)
 	// This saves 2× bloom filter checks + hash computation when cache isn't full
 	if full {
-		// Exp 23: Ghost hits go to main with peak frequency restore (50% penalty)
-		h := s.hasher(key)
+		// Use pre-computed hash if provided, otherwise compute
+		h := hash
+		if h == 0 {
+			h = s.hasher(key)
+		}
 		inGhost := s.ghostActive.Contains(h) || s.ghostAging.Contains(h)
 		ent.inSmall = !inGhost
 
