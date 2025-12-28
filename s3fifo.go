@@ -203,6 +203,9 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		size = 16384
 	}
 
+	// Scale death row with capacity (was numShards × 8 with sharding).
+	deathRowSize := max(minDeathRowSize, size/128)
+
 	c := &s3fifo[K, V]{
 		mu:          xsync.NewRBMutex(),
 		entries:     xsync.NewMap[K, *entry[K, V]](xsync.WithPresize(size)),
@@ -211,6 +214,7 @@ func newS3FIFO[K comparable, V any](cfg *config) *s3fifo[K, V] {
 		ghostCap:    size,
 		ghostActive: newBloomFilter(size, ghostFPRate),
 		ghostAging:  newBloomFilter(size, ghostFPRate),
+		deathRow:    make([]*entry[K, V], deathRowSize),
 	}
 
 	// Detect key type once to avoid type switch on every operation.
