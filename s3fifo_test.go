@@ -2,7 +2,9 @@ package multicache
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -941,4 +943,433 @@ func TestS3FIFO_MainQueueReinsertion(t *testing.T) {
 		t.Errorf("only %d/100 hot items survived; expected most to survive due to reinsertion",
 			survivedCount)
 	}
+}
+
+// TestS3FIFO_NeverExceedsCapacity verifies that the cache never exceeds its capacity
+// under various workloads and sizes. This is a critical invariant.
+func TestS3FIFO_NeverExceedsCapacity(t *testing.T) {
+	testCases := []struct {
+		name       string
+		capacity   int
+		insertions int
+	}{
+		{"small_2x", 100, 200},
+		{"small_5x", 100, 500},
+		{"small_10x", 100, 1000},
+		{"medium_2x", 1000, 2000},
+		{"medium_5x", 1000, 5000},
+		{"large_3x", 10000, 30000},
+		{"large_5x", 10000, 50000},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := newS3FIFO[int, int](&config{size: tc.capacity})
+			maxSeen := 0
+
+			for i := range tc.insertions {
+				cache.set(i, i, 0)
+
+				// Check capacity after every insertion
+				current := cache.len()
+				if current > maxSeen {
+					maxSeen = current
+				}
+
+				// Capacity should never exceed the configured limit
+				// Allow small overhead for concurrent operations (10%)
+				maxAllowed := tc.capacity * 11 / 10
+				if current > maxAllowed {
+					t.Fatalf("capacity exceeded at insertion %d: got %d, max allowed %d",
+						i, current, maxAllowed)
+				}
+			}
+
+			// Final check: cache should be at or near capacity
+			final := cache.len()
+			minExpected := tc.capacity * 80 / 100
+			if final < minExpected {
+				t.Errorf("cache under-utilized: got %d, want at least %d", final, minExpected)
+			}
+
+			t.Logf("capacity=%d, insertions=%d, max_seen=%d, final=%d",
+				tc.capacity, tc.insertions, maxSeen, final)
+		})
+	}
+}
+
+// TestS3FIFO_NeverExceedsCapacity_Concurrent verifies capacity bounds under concurrent access.
+func TestS3FIFO_NeverExceedsCapacity_Concurrent(t *testing.T) {
+	capacity := 10000
+	cache := newS3FIFO[int, int](&config{size: capacity})
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+	insertionsPerGoroutine := 5000
+
+	// Track max length seen across all goroutines
+	var maxLen atomic.Int64
+
+	for g := range numGoroutines {
+		wg.Add(1)
+		go func(offset int) {
+			defer wg.Done()
+			for i := range insertionsPerGoroutine {
+				cache.set(offset*insertionsPerGoroutine+i, i, 0)
+
+				// Periodically check length
+				if i%100 == 0 {
+					current := int64(cache.len())
+					for {
+						old := maxLen.Load()
+						if current <= old || maxLen.CompareAndSwap(old, current) {
+							break
+						}
+					}
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// Capacity should never exceed limit (allow 15% for concurrent overhead)
+	maxAllowed := capacity * 115 / 100
+	if int(maxLen.Load()) > maxAllowed {
+		t.Errorf("concurrent capacity exceeded: max seen %d, allowed %d", maxLen.Load(), maxAllowed)
+	}
+
+	// Final check
+	final := cache.len()
+	if final > maxAllowed {
+		t.Errorf("final capacity exceeded: got %d, max allowed %d", final, maxAllowed)
+	}
+
+	t.Logf("concurrent test: capacity=%d, total_insertions=%d, max_seen=%d, final=%d",
+		capacity, numGoroutines*insertionsPerGoroutine, maxLen.Load(), final)
+}
+
+// TestS3FIFO_NeverExceedsCapacity_MixedWorkload tests capacity with mixed get/set operations.
+func TestS3FIFO_NeverExceedsCapacity_MixedWorkload(t *testing.T) {
+	capacity := 5000
+	cache := newS3FIFO[int, int](&config{size: capacity})
+
+	// Phase 1: Fill cache
+	for i := range capacity {
+		cache.set(i, i, 0)
+	}
+
+	if cache.len() != capacity {
+		t.Errorf("after fill: got %d, want %d", cache.len(), capacity)
+	}
+
+	// Phase 2: Heavy read/write mix that triggers promotions
+	for round := range 3 {
+		// Access existing items (promotes to main)
+		for i := range capacity / 2 {
+			cache.get(i)
+		}
+
+		// Insert new items (triggers eviction)
+		baseKey := capacity + round*capacity
+		for i := range capacity {
+			cache.set(baseKey+i, i, 0)
+
+			current := cache.len()
+			maxAllowed := capacity * 11 / 10
+			if current > maxAllowed {
+				t.Fatalf("round %d, insertion %d: capacity exceeded %d > %d",
+					round, i, current, maxAllowed)
+			}
+		}
+
+		t.Logf("round %d: cache len = %d", round, cache.len())
+	}
+}
+
+// TestS3FIFO_CapacityBound_2Xto4X verifies capacity bounds during sustained 2X-4X workload.
+// This tests for inflation bugs where eviction might not keep up with insertions.
+func TestS3FIFO_CapacityBound_2Xto4X(t *testing.T) {
+	capacity := 10000
+	// Allow GOMAXPROCS * 4 temporary overshoot
+	maxOvershoot := runtime.GOMAXPROCS(0) * 4
+	maxAllowed := capacity + maxOvershoot
+
+	cache := newS3FIFO[int, int](&config{size: capacity})
+
+	// Phase 1: Fill to capacity
+	for i := range capacity {
+		cache.set(i, i, 0)
+	}
+
+	// Phase 2: Access all entries to give them peakFreq >= 1 (triggers demotion path)
+	for i := range capacity {
+		cache.get(i)
+	}
+
+	maxSeen := cache.len()
+
+	// Phase 3: Insert 2X more unique keys (total 3X capacity)
+	for i := capacity; i < capacity*3; i++ {
+		cache.set(i, i, 0)
+
+		current := cache.len()
+		if current > maxSeen {
+			maxSeen = current
+		}
+
+		if current > maxAllowed {
+			t.Fatalf("at insertion %d: capacity %d exceeded max %d (overshoot %d, allowed %d)",
+				i, current, maxAllowed, current-capacity, maxOvershoot)
+		}
+	}
+
+	t.Logf("2X-3X: capacity=%d, max_seen=%d, overshoot=%d, allowed=%d",
+		capacity, maxSeen, maxSeen-capacity, maxOvershoot)
+
+	// Phase 4: Continue to 4X with heavy access pattern (worst case for demotion)
+	for i := capacity * 3; i < capacity*4; i++ {
+		// Access recent entries to increase their freq (triggers promotion path)
+		if i > capacity*3+100 {
+			for j := i - 100; j < i; j++ {
+				cache.get(j)
+			}
+		}
+
+		cache.set(i, i, 0)
+
+		current := cache.len()
+		if current > maxSeen {
+			maxSeen = current
+		}
+
+		if current > maxAllowed {
+			t.Fatalf("at insertion %d: capacity %d exceeded max %d",
+				i, current, maxAllowed)
+		}
+	}
+
+	t.Logf("3X-4X: capacity=%d, max_seen=%d, overshoot=%d, final=%d",
+		capacity, maxSeen, maxSeen-capacity, cache.len())
+}
+
+// TestS3FIFO_CapacityBound_PathologicalDemotion tests the demotion path specifically.
+// All entries are accessed once (peakFreq=1) to trigger demotion instead of eviction.
+func TestS3FIFO_CapacityBound_PathologicalDemotion(t *testing.T) {
+	capacity := 5000
+	maxOvershoot := runtime.GOMAXPROCS(0) * 4
+	maxAllowed := capacity + maxOvershoot
+
+	cache := newS3FIFO[int, int](&config{size: capacity})
+
+	// Fill cache
+	for i := range capacity {
+		cache.set(i, i, 0)
+	}
+
+	// Access all entries exactly once to set peakFreq = 1
+	// This triggers the demotion path in evictFromMain
+	for i := range capacity {
+		cache.get(i)
+	}
+
+	maxSeen := capacity
+
+	// Insert 3X capacity of new keys
+	// Every eviction from main should demote (not evict) since peakFreq >= 1
+	// But the demoted entry has freq=1, so evictFromSmall should evict it
+	for i := capacity; i < capacity*4; i++ {
+		cache.set(i, i, 0)
+
+		current := cache.len()
+		if current > maxSeen {
+			maxSeen = current
+		}
+
+		if current > maxAllowed {
+			t.Fatalf("demotion pathology at %d: len=%d > max=%d",
+				i, current, maxAllowed)
+		}
+	}
+
+	t.Logf("demotion test: capacity=%d, max_seen=%d, overshoot=%d",
+		capacity, maxSeen, maxSeen-capacity)
+}
+
+// TestS3FIFO_CapacityBound_AllHotEntries tests when all entries have high frequency.
+// This triggers the promotion path in evictFromSmall.
+func TestS3FIFO_CapacityBound_AllHotEntries(t *testing.T) {
+	capacity := 5000
+	maxOvershoot := runtime.GOMAXPROCS(0) * 4
+	maxAllowed := capacity + maxOvershoot
+
+	cache := newS3FIFO[int, int](&config{size: capacity})
+
+	// Fill cache
+	for i := range capacity {
+		cache.set(i, i, 0)
+	}
+
+	// Access all entries multiple times to set freq = maxFreq (2)
+	// This triggers the promotion path in evictFromSmall
+	for range 3 {
+		for i := range capacity {
+			cache.get(i)
+		}
+	}
+
+	maxSeen := capacity
+
+	// Insert new keys while continuously accessing existing ones
+	for i := capacity; i < capacity*3; i++ {
+		// Keep existing entries hot
+		cache.get(i % capacity)
+		cache.get((i + 1) % capacity)
+
+		cache.set(i, i, 0)
+
+		current := cache.len()
+		if current > maxSeen {
+			maxSeen = current
+		}
+
+		if current > maxAllowed {
+			t.Fatalf("all-hot pathology at %d: len=%d > max=%d",
+				i, current, maxAllowed)
+		}
+	}
+
+	t.Logf("all-hot test: capacity=%d, max_seen=%d, overshoot=%d",
+		capacity, maxSeen, maxSeen-capacity)
+}
+
+// TestS3FIFO_MemoryLeak_2Xto3X verifies that memory is properly released
+// when churning from 2X to 3X capacity. This catches leaks where evicted
+// entries aren't being garbage collected.
+func TestS3FIFO_MemoryLeak_2Xto3X(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping memory test in short mode")
+	}
+
+	capacity := 100000
+	cache := newS3FIFO[int, []byte](&config{size: capacity})
+
+	// Create a 1KB value to make memory usage measurable
+	valueSize := 1024
+	makeValue := func() []byte {
+		return make([]byte, valueSize)
+	}
+
+	// Phase 1: Fill to capacity
+	for i := range capacity {
+		cache.set(i, makeValue(), 0)
+	}
+
+	// Force GC and get baseline
+	runtime.GC()
+	runtime.GC()
+	var baseline runtime.MemStats
+	runtime.ReadMemStats(&baseline)
+
+	// Phase 2: Churn to 2X capacity (all new unique keys)
+	for i := capacity; i < capacity*2; i++ {
+		cache.set(i, makeValue(), 0)
+	}
+
+	// Force GC and measure after 2X
+	runtime.GC()
+	runtime.GC()
+	var after2X runtime.MemStats
+	runtime.ReadMemStats(&after2X)
+
+	// Phase 3: Continue to 3X capacity
+	for i := capacity * 2; i < capacity*3; i++ {
+		cache.set(i, makeValue(), 0)
+	}
+
+	// Force GC and measure after 3X
+	runtime.GC()
+	runtime.GC()
+	var after3X runtime.MemStats
+	runtime.ReadMemStats(&after3X)
+
+	// Calculate memory differences
+	memAfter2X := int64(after2X.HeapAlloc) - int64(baseline.HeapAlloc)
+	memAfter3X := int64(after3X.HeapAlloc) - int64(baseline.HeapAlloc)
+
+	// Memory should not grow significantly between 2X and 3X
+	// because evicted entries should be garbage collected.
+	// Allow 20% growth for GC timing variance.
+	maxGrowth := memAfter2X * 120 / 100 // 20% tolerance
+	if memAfter3X > maxGrowth && memAfter3X-memAfter2X > 10*1024*1024 {
+		t.Errorf("memory leak detected: after 2X=%d MB, after 3X=%d MB (grew %d MB)",
+			memAfter2X/(1024*1024), memAfter3X/(1024*1024),
+			(memAfter3X-memAfter2X)/(1024*1024))
+	}
+
+	// Verify cache is at capacity
+	if cache.len() != capacity {
+		t.Errorf("cache len = %d, want %d", cache.len(), capacity)
+	}
+
+	t.Logf("memory: baseline=%d MB, after_2X=%d MB, after_3X=%d MB, delta=%d MB",
+		baseline.HeapAlloc/(1024*1024),
+		after2X.HeapAlloc/(1024*1024),
+		after3X.HeapAlloc/(1024*1024),
+		(int64(after3X.HeapAlloc)-int64(after2X.HeapAlloc))/(1024*1024))
+}
+
+// TestS3FIFO_MemoryLeak_LargeValues tests memory behavior with large values.
+func TestS3FIFO_MemoryLeak_LargeValues(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping memory test in short mode")
+	}
+
+	capacity := 10000
+	cache := newS3FIFO[int, []byte](&config{size: capacity})
+
+	// 10KB values
+	valueSize := 10 * 1024
+	makeValue := func() []byte {
+		return make([]byte, valueSize)
+	}
+
+	// Fill to capacity
+	for i := range capacity {
+		cache.set(i, makeValue(), 0)
+	}
+
+	runtime.GC()
+	runtime.GC()
+	var baseline runtime.MemStats
+	runtime.ReadMemStats(&baseline)
+
+	// Churn with 3X unique keys
+	for i := capacity; i < capacity*4; i++ {
+		cache.set(i, makeValue(), 0)
+	}
+
+	runtime.GC()
+	runtime.GC()
+	var afterChurn runtime.MemStats
+	runtime.ReadMemStats(&afterChurn)
+
+	// Expected memory: capacity * valueSize = 10000 * 10KB = 100MB
+	// With overhead, should be around 100-150MB
+	// If we leak, we'd have 4X that = 400MB+
+	expectedMax := int64(capacity) * int64(valueSize) * 2 // 2x for overhead tolerance
+
+	if int64(afterChurn.HeapAlloc) > expectedMax {
+		t.Errorf("possible memory leak: heap=%d MB, expected max=%d MB",
+			afterChurn.HeapAlloc/(1024*1024), expectedMax/(1024*1024))
+	}
+
+	if cache.len() != capacity {
+		t.Errorf("cache len = %d, want %d", cache.len(), capacity)
+	}
+
+	t.Logf("large values: baseline=%d MB, after_churn=%d MB, cache_len=%d",
+		baseline.HeapAlloc/(1024*1024),
+		afterChurn.HeapAlloc/(1024*1024),
+		cache.len())
 }

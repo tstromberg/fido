@@ -97,6 +97,7 @@ func (c *Cache[K, V]) GetSet(key K, loader func() (V, error), ttl ...time.Durati
 
 	// We're the first; check cache again then compute.
 	if val, ok := c.memory.get(key); ok {
+		call.val = val // Set for any waiters before wg.Done()
 		c.flights.Delete(key)
 		call.wg.Done()
 		return val, nil

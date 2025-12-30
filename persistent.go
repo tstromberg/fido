@@ -156,6 +156,7 @@ func (c *TieredCache[K, V]) GetSet(ctx context.Context, key K, loader func(conte
 
 	// We're the first; check cache and store again then compute.
 	if v, ok := c.memory.get(key); ok {
+		call.val = v // Set for any waiters before wg.Done()
 		c.flights.Delete(key)
 		call.wg.Done()
 		return v, nil

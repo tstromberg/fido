@@ -285,7 +285,7 @@ func (c *s3fifo[K, V]) set(key K, value V, expiryNano int64) {
 }
 
 // updateEntry updates an existing entry's value and frequency counters.
-func (c *s3fifo[K, V]) updateEntry(ent *entry[K, V], value V, expiryNano int64) {
+func (*s3fifo[K, V]) updateEntry(ent *entry[K, V], value V, expiryNano int64) {
 	ent.value.Store(value)
 	ent.expiryNano.Store(expiryNano)
 	if ent.freq.Load() < maxFreq {
@@ -364,10 +364,23 @@ func (c *s3fifo[K, V]) setWithHash(key K, value V, expiryNano int64, hash uint64
 			}
 		}
 
-		if c.main.len > 0 && c.small.len <= c.smallThresh {
-			c.evictFromMain()
-		} else if c.small.len > 0 {
-			c.evictFromSmall()
+		// Eviction loop: keep trying until we actually evict something.
+		// This prevents capacity inflation when all entries are hot.
+		for {
+			var evicted bool
+			switch {
+			case c.main.len > 0 && c.small.len <= c.smallThresh:
+				evicted = c.evictFromMain()
+			case c.small.len > 0:
+				evicted = c.evictFromSmall()
+			default:
+				evicted = true // both queues empty (shouldn't happen), exit loop
+			}
+			if evicted {
+				break
+			}
+			// If we demoted but didn't evict, the demoted entry is now in small
+			// with freq=1, so the next iteration should evict it.
 		}
 	} else {
 		ent.inSmall = true
@@ -404,7 +417,8 @@ func (c *s3fifo[K, V]) del(key K) {
 }
 
 // evictFromSmall evicts cold entries (freq<2) or promotes warm ones to main.
-func (c *s3fifo[K, V]) evictFromSmall() {
+// Returns true if an entry was actually evicted (not just promoted/demoted).
+func (c *s3fifo[K, V]) evictFromSmall() bool {
 	mcap := (c.capacity * 9) / 10
 
 	for c.small.len > 0 {
@@ -414,7 +428,7 @@ func (c *s3fifo[K, V]) evictFromSmall() {
 		if f < 2 {
 			c.small.remove(e)
 			c.evict(e)
-			return
+			return true
 		}
 
 		// Promote to main.
@@ -424,18 +438,22 @@ func (c *s3fifo[K, V]) evictFromSmall() {
 		c.main.pushBack(e)
 
 		if c.main.len > mcap {
-			c.evictFromMain()
+			if c.evictFromMain() {
+				return true
+			}
 		}
 	}
+	return false
 }
 
 // evictFromMain evicts cold entries (freq==0) or gives warm ones a second chance.
+// Returns true if an entry was actually evicted (not just demoted).
 //
 // Deviation from paper: items that were accessed at least once (peakFreq >= 1)
 // get demoted to small queue with freq=1 instead of being evicted. This gives
 // them another chance to prove themselves before final eviction.
 // Improves meta by +4%, wikipedia by +1%, and most other traces.
-func (c *s3fifo[K, V]) evictFromMain() {
+func (c *s3fifo[K, V]) evictFromMain() bool {
 	for c.main.len > 0 {
 		e := c.main.head
 		f := e.freq.Load()
@@ -447,10 +465,10 @@ func (c *s3fifo[K, V]) evictFromMain() {
 				e.freq.Store(1)
 				e.inSmall = true
 				c.small.pushBack(e)
-				return
+				return false // demoted, not evicted
 			}
 			c.evict(e)
-			return
+			return true
 		}
 
 		// Second chance.
@@ -458,6 +476,7 @@ func (c *s3fifo[K, V]) evictFromMain() {
 		e.freq.Store(f - 1)
 		c.main.pushBack(e)
 	}
+	return false
 }
 
 // evict removes an entry from the cache and records it in ghost.
