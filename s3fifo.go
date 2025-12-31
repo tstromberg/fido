@@ -199,15 +199,40 @@ func timeToSec(t time.Time) uint32 {
 }
 
 // entry is a cached key-value pair with eviction metadata.
-// Layout optimized for 64 bytes: key(16) + value(16) + prev(8) + next(8) + fields(16).
+// Uses seqlock for zero-allocation value storage.
 type entry[K comparable, V any] struct {
 	key       K
-	value     atomic.Value // stores V atomically for safe concurrent access
+	value     V             // stored inline, protected by seqlock
+	seq       atomic.Uint64 // seqlock: odd = write in progress
 	prev      *entry[K, V]
 	next      *entry[K, V]
 	hash64    uint64        // full 64-bit hash for bloom filter (avoids re-hashing on eviction)
 	expirySec atomic.Uint32 // 0 means no expiry; seconds since Unix epoch
 	freqFlags atomic.Uint32 // bits 0-3: freq, bits 4-9: peakFreq, bit 30: inSmall, bit 31: onDeathRow
+}
+
+// storeValue stores a value using seqlock protocol (zero allocations).
+func (e *entry[K, V]) storeValue(v V) {
+	seq := e.seq.Add(1) // start write (now odd) - has release semantics
+	e.value = v
+	e.seq.Store(seq + 1) // end write (now even) - has release semantics
+}
+
+// loadValue loads a value using seqlock protocol.
+func (e *entry[K, V]) loadValue() (V, bool) {
+	for range 1000 { // bounded retry
+		s1 := e.seq.Load() // acquire semantics
+		if s1&1 != 0 {
+			continue // write in progress, retry
+		}
+		v := e.value
+		s2 := e.seq.Load() // acquire semantics
+		if s2 == s1 {
+			return v, s1 > 0 // s1>0 means value was stored at least once
+		}
+	}
+	var zero V
+	return zero, false
 }
 
 // Bitfield constants for freqFlags.
@@ -392,8 +417,7 @@ func (c *s3fifo[K, V]) get(key K) (V, bool) {
 	if (flags>>peakFreqShift)&peakFreqMask < maxPeakFreq {
 		ent.incPeakFreq(maxPeakFreq)
 	}
-	val, ok := ent.value.Load().(V)
-	return val, ok
+	return ent.loadValue()
 }
 
 // resurrectFromDeathRow brings an entry back from pending eviction.
@@ -429,7 +453,7 @@ func (c *s3fifo[K, V]) resurrectFromDeathRow(key K) (V, bool) {
 		c.evictOne()
 	}
 
-	val, ok := ent.value.Load().(V)
+	val, ok := ent.loadValue()
 	c.mu.Unlock()
 	return val, ok
 }
@@ -445,7 +469,7 @@ func (c *s3fifo[K, V]) set(key K, value V, expirySec uint32) {
 
 // updateEntry updates an existing entry's value and frequency counters.
 func (*s3fifo[K, V]) updateEntry(ent *entry[K, V], value V, expirySec uint32) {
-	ent.value.Store(value)
+	ent.storeValue(value)
 	ent.expirySec.Store(expirySec)
 	// Hot path: single Load to check if counters need increment.
 	flags := ent.freqFlags.Load()
@@ -482,12 +506,11 @@ func (c *s3fifo[K, V]) setWithHash(key K, value V, expirySec uint32, hash uint64
 	if ent != nil {
 		c.freeEntry = nil
 		ent.key = key
-		ent.value.Store(value)
 		ent.freqFlags.Store(0) // clears freq, peakFreq, inSmall, onDeathRow
 	} else {
 		ent = &entry[K, V]{key: key}
-		ent.value.Store(value)
 	}
+	ent.storeValue(value)
 	ent.expirySec.Store(expirySec)
 
 	// Cache full hash for bloom filter (avoids re-hashing on eviction).

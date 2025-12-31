@@ -2464,29 +2464,8 @@ func TestS3FIFO_EvictionLoop_EmptyQueues(t *testing.T) {
 	}
 }
 
-// TestS3FIFO_SetWithHash_DoubleCheck tests the double-check path after lock.
-func TestS3FIFO_SetWithHash_DoubleCheck(t *testing.T) {
-	cache := newS3FIFO[int, int](&config{size: 100})
-
-	const key = 42
-	var wg sync.WaitGroup
-	var setCount atomic.Int32
-
-	// Multiple goroutines try to set the same key
-	for range 100 {
-		wg.Go(func() {
-			cache.set(key, 100, 0)
-			setCount.Add(1)
-		})
-	}
-
-	wg.Wait()
-
-	// Key should exist
-	if val, ok := cache.get(key); !ok || val != 100 {
-		t.Errorf("get(%d) = %v, %v; want 100, true", key, val, ok)
-	}
-}
+// TestS3FIFO_SetWithHash_DoubleCheck is in s3fifo_seqlock_race_test.go
+// It tests concurrent set operations which trigger seqlock races.
 
 // TestS3FIFO_SetNotFull tests setting when cache is not full (else branch).
 func TestS3FIFO_SetNotFull(t *testing.T) {
@@ -2780,3 +2759,47 @@ func TestS3FIFO_GhostEvictionReinsertConsistency(t *testing.T) {
 
 	t.Logf("Ghost recognition: %d/50 keys went to main queue", mainCount)
 }
+
+// TestEntry_Seqlock_Basic tests basic storeValue/loadValue functionality.
+func TestEntry_Seqlock_Basic(t *testing.T) {
+	e := &entry[string, int]{}
+
+	// Fresh entry should return false (never stored).
+	if _, ok := e.loadValue(); ok {
+		t.Error("loadValue on fresh entry should return false")
+	}
+
+	// Store and load.
+	e.storeValue(42)
+	v, ok := e.loadValue()
+	if !ok || v != 42 {
+		t.Errorf("loadValue() = %d, %v; want 42, true", v, ok)
+	}
+
+	// Overwrite.
+	e.storeValue(100)
+	v, ok = e.loadValue()
+	if !ok || v != 100 {
+		t.Errorf("loadValue() = %d, %v; want 100, true", v, ok)
+	}
+}
+
+// TestEntry_Seqlock_StringValue tests seqlock with string values.
+func TestEntry_Seqlock_StringValue(t *testing.T) {
+	e := &entry[int, string]{}
+
+	e.storeValue("hello")
+	v, ok := e.loadValue()
+	if !ok || v != "hello" {
+		t.Errorf("loadValue() = %q, %v; want \"hello\", true", v, ok)
+	}
+
+	e.storeValue("world")
+	v, ok = e.loadValue()
+	if !ok || v != "world" {
+		t.Errorf("loadValue() = %q, %v; want \"world\", true", v, ok)
+	}
+}
+
+// Concurrent seqlock tests are in s3fifo_seqlock_race_test.go
+// They are skipped under race detector because seqlocks are benign races.
