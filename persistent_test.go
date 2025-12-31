@@ -829,8 +829,8 @@ func TestTieredCache_Set_VariadicTTL(t *testing.T) {
 		t.Error("default-ttl should be found")
 	}
 
-	// Set with explicit short TTL
-	if err := cache.SetTTL(ctx, "short-ttl", 2, 50*time.Millisecond); err != nil {
+	// Set with explicit short TTL (1 second granularity)
+	if err := cache.SetTTL(ctx, "short-ttl", 2, 1*time.Second); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	_, found, err = cache.Get(ctx, "short-ttl")
@@ -842,7 +842,7 @@ func TestTieredCache_Set_VariadicTTL(t *testing.T) {
 	}
 
 	// Wait for short TTL to expire
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// short-ttl should be expired in memory, default-ttl should still exist
 	_, found, err = cache.Get(ctx, "short-ttl")
@@ -1057,8 +1057,8 @@ func TestNew_InvalidSize(t *testing.T) {
 }
 
 func TestNew_TTL_Behavior(t *testing.T) {
-	// Test that TTL option is correctly applied as default
-	defaultTTL := 100 * time.Millisecond
+	// Test that TTL option is correctly applied as default (1 second granularity)
+	defaultTTL := 1 * time.Second
 	cache := New[string, int](TTL(defaultTTL))
 
 	// Set without explicit TTL -> uses default
@@ -1068,7 +1068,7 @@ func TestNew_TTL_Behavior(t *testing.T) {
 	cache.SetTTL("longer", 2, 1*time.Hour)
 
 	// Wait for default to expire
-	time.Sleep(defaultTTL + 10*time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	if _, ok := cache.Get("default"); ok {
 		t.Error("Item with default TTL should have expired")
@@ -1080,7 +1080,7 @@ func TestNew_TTL_Behavior(t *testing.T) {
 
 func TestNewTiered_WithTTL_Behavior(t *testing.T) {
 	store := newMockStore[string, int]()
-	defaultTTL := 100 * time.Millisecond
+	defaultTTL := 1 * time.Second
 	cache, err := NewTiered[string, int](store, TTL(defaultTTL))
 	if err != nil {
 		t.Fatalf("NewTiered failed: %v", err)
@@ -1104,7 +1104,7 @@ func TestNewTiered_WithTTL_Behavior(t *testing.T) {
 	}
 
 	// Wait for default to expire
-	time.Sleep(defaultTTL + 10*time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Check memory first (using Get)
 	if _, ok := cache.memory.get("default"); ok {
@@ -1300,8 +1300,8 @@ func TestTieredCache_GetSet_WithTTL(t *testing.T) {
 		return loaderCalls * 10, nil
 	}
 
-	// First call with short TTL
-	val, err := cache.GetSetTTL(ctx, "key1", loader, 50*time.Millisecond)
+	// First call with short TTL (1 second granularity)
+	val, err := cache.GetSetTTL(ctx, "key1", loader, 1*time.Second)
 	if err != nil {
 		t.Fatalf("GetSet error: %v", err)
 	}
@@ -1310,10 +1310,10 @@ func TestTieredCache_GetSet_WithTTL(t *testing.T) {
 	}
 
 	// Wait for TTL to expire
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Second call - should call loader again (cache expired)
-	val, err = cache.GetSetTTL(ctx, "key1", loader, 50*time.Millisecond)
+	val, err = cache.GetSetTTL(ctx, "key1", loader, 1*time.Second)
 	if err != nil {
 		t.Fatalf("GetSet error: %v", err)
 	}

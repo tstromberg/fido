@@ -625,10 +625,12 @@ func validateCompetitive(res, prev *Results, testsFilter, suitesFilter string) e
 
 	// For partial suite runs, only validate relevant placements.
 	var fails []string
+	headerPrinted := false
 
 	// Score validation only for full runs.
 	if fullRun {
 		fmt.Println("\n=== Final Validation ===")
+		headerPrinted = true
 		if mc.Score >= minMulticacheScore {
 			fmt.Printf("✓ multicache score: %d (goal: ≥%d)\n", mc.Score, minMulticacheScore)
 		} else {
@@ -672,9 +674,9 @@ func validateCompetitive(res, prev *Results, testsFilter, suitesFilter string) e
 
 		for _, r := range cat.Rankings {
 			if r.Name == "multicache" {
-				// Print header if we haven't yet (partial suite run).
-				if !fullRun {
+				if !headerPrinted {
 					fmt.Println("\n=== Final Validation ===")
+					headerPrinted = true
 				}
 				if r.Rank <= maxPlace {
 					fmt.Printf("✓ %s placement: %d (goal: ≤%d)\n", cat.Name, r.Rank, maxPlace)

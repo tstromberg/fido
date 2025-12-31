@@ -64,7 +64,7 @@ func (c *Cache[K, V]) Set(key K, value V) {
 		c.memory.set(key, value, 0)
 		return
 	}
-	c.memory.set(key, value, timeToNano(c.expiry(0)))
+	c.memory.set(key, value, timeToSec(c.expiry(0)))
 }
 
 // SetTTL stores a value with an explicit TTL.
@@ -74,7 +74,7 @@ func (c *Cache[K, V]) SetTTL(key K, value V, ttl time.Duration) {
 		c.memory.set(key, value, 0)
 		return
 	}
-	c.memory.set(key, value, time.Now().Add(ttl).UnixNano())
+	c.memory.set(key, value, uint32(time.Now().Add(ttl).Unix()))
 }
 
 // Delete removes a key from the cache.

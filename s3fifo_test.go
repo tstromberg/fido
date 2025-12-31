@@ -153,7 +153,7 @@ func TestS3FIFO_TTL(t *testing.T) {
 	cache := newS3FIFO[string, int](&config{size: 10})
 
 	// Set item with past expiry
-	past := time.Now().Add(-1 * time.Second).UnixNano()
+	past := uint32(time.Now().Add(-1 * time.Second).Unix())
 	cache.set("expired", 42, past)
 
 	// Should not be retrievable
@@ -162,7 +162,7 @@ func TestS3FIFO_TTL(t *testing.T) {
 	}
 
 	// Set item with future expiry
-	future := time.Now().Add(1 * time.Hour).UnixNano()
+	future := uint32(time.Now().Add(1 * time.Hour).Unix())
 	cache.set("valid", 100, future)
 
 	// Should be retrievable
@@ -707,7 +707,7 @@ func TestS3FIFO_FrequencyCapAt7(t *testing.T) {
 		t.Fatal("entry not found")
 	}
 
-	freq := ent.freq.Load()
+	freq := ent.freq()
 	if freq > 7 {
 		t.Errorf("frequency = %d; want <= 7 (should be capped at 7)", freq)
 	}
@@ -726,7 +726,7 @@ func TestS3FIFO_SetIncrementsFrequency(t *testing.T) {
 
 	// Check initial frequency (should be 0 for new entries)
 	ent, _ := cache.getEntry("key")
-	initialFreq := ent.freq.Load()
+	initialFreq := ent.freq()
 
 	if initialFreq != 0 {
 		t.Errorf("initial frequency = %d; want 0", initialFreq)
@@ -739,7 +739,7 @@ func TestS3FIFO_SetIncrementsFrequency(t *testing.T) {
 
 	// Check that frequency increased due to updates
 	ent, _ = cache.getEntry("key")
-	finalFreq := ent.freq.Load()
+	finalFreq := ent.freq()
 
 	if finalFreq == 0 {
 		t.Error("frequency should have increased after updates, but is still 0")
@@ -847,7 +847,7 @@ func TestS3FIFO_GhostQueuePromotion(t *testing.T) {
 	ent, ok := cache.getEntry(0)
 	inSmall := false
 	if ok {
-		inSmall = ent.inSmall
+		inSmall = ent.inSmall()
 	}
 
 	if !ok {
@@ -1585,7 +1585,7 @@ func TestS3FIFO_GhostFrequencyRestoration(t *testing.T) {
 	}
 
 	// Entry should be in main queue if ghost had it
-	if ent.inSmall {
+	if ent.inSmall() {
 		t.Log("key 0 in small queue (ghost may have rotated)")
 	} else {
 		t.Log("key 0 in main queue (restored from ghost)")
@@ -1631,17 +1631,17 @@ func TestS3FIFO_HashString_ShortStrings(t *testing.T) {
 	}
 }
 
-// TestS3FIFO_TimeToNano tests the timeToNano helper.
-func TestS3FIFO_TimeToNano(t *testing.T) {
+// TestS3FIFO_TimeToSec tests the timeToSec helper.
+func TestS3FIFO_TimeToSec(t *testing.T) {
 	// Zero time should return 0
-	if got := timeToNano(time.Time{}); got != 0 {
-		t.Errorf("timeToNano(zero) = %d; want 0", got)
+	if got := timeToSec(time.Time{}); got != 0 {
+		t.Errorf("timeToSec(zero) = %d; want 0", got)
 	}
 
-	// Non-zero time should return UnixNano
+	// Non-zero time should return Unix seconds
 	now := time.Now()
-	if got := timeToNano(now); got != now.UnixNano() {
-		t.Errorf("timeToNano(now) = %d; want %d", got, now.UnixNano())
+	if got := timeToSec(now); got != uint32(now.Unix()) {
+		t.Errorf("timeToSec(now) = %d; want %d", got, now.Unix())
 	}
 }
 
@@ -2180,7 +2180,7 @@ func TestS3FIFO_DeleteItemInMain(t *testing.T) {
 
 	// Find an entry in main queue (not inSmall, not onDeathRow)
 	for i := range 50 {
-		if ent, ok := cache.getEntry(i); ok && !ent.inSmall && !ent.onDeathRow {
+		if ent, ok := cache.getEntry(i); ok && !ent.inSmall() && !ent.onDeathRow() {
 			// Found one in main - delete it
 			t.Logf("Found key %d in main queue, deleting", i)
 			cache.del(i)
@@ -2196,9 +2196,9 @@ func TestS3FIFO_DeleteItemInMain(t *testing.T) {
 	for i := range 50 {
 		if ent, ok := cache.getEntry(i); ok {
 			switch {
-			case ent.onDeathRow:
+			case ent.onDeathRow():
 				onDeathRowCount++
-			case ent.inSmall:
+			case ent.inSmall():
 				inSmallCount++
 			default:
 				inMainCount++
@@ -2232,7 +2232,7 @@ func TestS3FIFO_ResurrectFromDeathRow_Detailed(t *testing.T) {
 
 	// Find items on death row and try to resurrect them
 	for i := range 10 {
-		if ent, ok := cache.getEntry(i); ok && ent.onDeathRow {
+		if ent, ok := cache.getEntry(i); ok && ent.onDeathRow() {
 			// Found one on death row - access it to resurrect
 			val, found := cache.get(i)
 			if found {
@@ -2353,7 +2353,7 @@ func TestS3FIFO_ResurrectFromDeathRow_WithEviction(t *testing.T) {
 	// Find an item on death row
 	foundOnDeathRow := -1
 	for i := range 20 {
-		if ent, ok := cache.getEntry(i); ok && ent.onDeathRow {
+		if ent, ok := cache.getEntry(i); ok && ent.onDeathRow() {
 			foundOnDeathRow = i
 			break
 		}
@@ -2374,10 +2374,10 @@ func TestS3FIFO_ResurrectFromDeathRow_WithEviction(t *testing.T) {
 
 	// Verify the item is no longer on death row
 	if ent, ok := cache.getEntry(foundOnDeathRow); ok {
-		if ent.onDeathRow {
+		if ent.onDeathRow() {
 			t.Error("Item should not be on death row after resurrection")
 		}
-		if ent.inSmall {
+		if ent.inSmall() {
 			t.Error("Resurrected item should be in main queue, not small")
 		}
 	}
@@ -2515,7 +2515,7 @@ func TestS3FIFO_SetNotFull(t *testing.T) {
 		t.Fatalf("cache should be under capacity: %d >= %d", cache.totalEntries.Load(), cache.capacity)
 	}
 
-	// Now insert new entry - should hit the "else { ent.inSmall = true }" path
+	// Now insert new entry - should hit the "else { ent.setInSmall(true) }" path
 	// because warmupComplete=true but full=false
 	cache.set(1000, 1000, 0)
 
@@ -2525,7 +2525,7 @@ func TestS3FIFO_SetNotFull(t *testing.T) {
 
 	// Verify the new entry went to small queue
 	if ent, ok := cache.getEntry(1000); ok {
-		if !ent.inSmall {
+		if !ent.inSmall() {
 			t.Error("new entry should be in small queue when cache not full")
 		}
 	}

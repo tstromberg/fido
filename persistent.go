@@ -62,7 +62,7 @@ func (c *TieredCache[K, V]) Get(ctx context.Context, key K) (V, bool, error) {
 		return zero, false, nil
 	}
 
-	c.memory.set(key, val, timeToNano(expiry))
+	c.memory.set(key, val, timeToSec(expiry))
 	return val, true, nil
 }
 
@@ -85,7 +85,7 @@ func (c *TieredCache[K, V]) SetTTL(ctx context.Context, key K, value V, ttl time
 		return err
 	}
 
-	c.memory.set(key, value, timeToNano(expiry))
+	c.memory.set(key, value, timeToSec(expiry))
 
 	if err := c.Store.Set(ctx, key, value, expiry); err != nil {
 		return fmt.Errorf("persistence store failed: %w", err)
@@ -108,7 +108,7 @@ func (c *TieredCache[K, V]) SetAsyncTTL(ctx context.Context, key K, value V, ttl
 		return err
 	}
 
-	c.memory.set(key, value, timeToNano(expiry))
+	c.memory.set(key, value, timeToSec(expiry))
 
 	go func() {
 		storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncTimeout)
@@ -148,7 +148,7 @@ func (c *TieredCache[K, V]) getSet(ctx context.Context, key K, loader func(conte
 		return zero, fmt.Errorf("persistence load: %w", err)
 	}
 	if found {
-		c.memory.set(key, val, timeToNano(expiry))
+		c.memory.set(key, val, timeToSec(expiry))
 		return val, nil
 	}
 
@@ -178,7 +178,7 @@ func (c *TieredCache[K, V]) getSet(ctx context.Context, key K, loader func(conte
 		return zero, call.err
 	}
 	if found {
-		c.memory.set(key, val, timeToNano(expiry))
+		c.memory.set(key, val, timeToSec(expiry))
 		call.val = val
 		c.flights.Delete(key)
 		call.wg.Done()
@@ -194,7 +194,7 @@ func (c *TieredCache[K, V]) getSet(ctx context.Context, key K, loader func(conte
 	}
 
 	exp := c.expiry(ttl)
-	c.memory.set(key, val, timeToNano(exp))
+	c.memory.set(key, val, timeToSec(exp))
 
 	if err := c.Store.Set(ctx, key, val, exp); err != nil {
 		slog.Warn("GetSet persistence failed", "key", key, "error", err)

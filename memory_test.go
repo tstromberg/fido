@@ -40,8 +40,8 @@ func TestCache_Basic(t *testing.T) {
 func TestCache_WithTTL(t *testing.T) {
 	cache := New[string, string]()
 
-	// Set with short TTL
-	cache.SetTTL("temp", "value", 50*time.Millisecond)
+	// Set with short TTL (minimum 1 second granularity)
+	cache.SetTTL("temp", "value", 1*time.Second)
 
 	// Should be available immediately
 	val, found := cache.Get("temp")
@@ -50,7 +50,7 @@ func TestCache_WithTTL(t *testing.T) {
 	}
 
 	// Wait for expiration
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Should be expired
 	_, found = cache.Get("temp")
@@ -60,7 +60,7 @@ func TestCache_WithTTL(t *testing.T) {
 }
 
 func TestCache_DefaultTTL(t *testing.T) {
-	cache := New[string, int](TTL(50 * time.Millisecond))
+	cache := New[string, int](TTL(1 * time.Second))
 
 	// Set without explicit TTL (ttl=0 uses default)
 	cache.Set("key", 100)
@@ -72,7 +72,7 @@ func TestCache_DefaultTTL(t *testing.T) {
 	}
 
 	// Wait for default TTL expiration
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Should be expired
 	_, found = cache.Get("key")
@@ -236,11 +236,11 @@ func TestCache_EvictFromMain(t *testing.T) {
 func TestCache_GetExpired(t *testing.T) {
 	cache := New[string, int]()
 
-	// Set with very short TTL
-	cache.SetTTL("key1", 42, 1*time.Millisecond)
+	// Set with short TTL (1 second granularity)
+	cache.SetTTL("key1", 42, 1*time.Second)
 
 	// Wait for expiration
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Get should return not found
 	_, found := cache.Get("key1")
@@ -368,8 +368,8 @@ func TestCache_SetTTL(t *testing.T) {
 		t.Error("default-ttl should be found")
 	}
 
-	// SetTTL uses explicit short TTL
-	cache.SetTTL("short-ttl", 2, 50*time.Millisecond)
+	// SetTTL uses explicit short TTL (1 second granularity)
+	cache.SetTTL("short-ttl", 2, 1*time.Second)
 	if _, found := cache.Get("short-ttl"); !found {
 		t.Error("short-ttl should be found immediately")
 	}
@@ -387,7 +387,7 @@ func TestCache_SetTTL(t *testing.T) {
 	}
 
 	// Wait for short TTL to expire
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// short-ttl should be expired, others should still exist
 	if _, found := cache.Get("short-ttl"); found {
@@ -411,7 +411,7 @@ func TestCache_Set_NoDefaultTTL(t *testing.T) {
 	cache.Set("no-expiry", 42)
 
 	// Wait a bit
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Should still exist
 	val, found := cache.Get("no-expiry")
@@ -531,8 +531,8 @@ func TestCache_GetSet_WithTTL(t *testing.T) {
 		return loaderCalls * 10, nil
 	}
 
-	// First call with short TTL
-	val, err := cache.GetSetTTL("key1", loader, 50*time.Millisecond)
+	// First call with short TTL (1 second granularity)
+	val, err := cache.GetSetTTL("key1", loader, 1*time.Second)
 	if err != nil {
 		t.Fatalf("GetSet error: %v", err)
 	}
@@ -541,10 +541,10 @@ func TestCache_GetSet_WithTTL(t *testing.T) {
 	}
 
 	// Wait for TTL to expire
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Second call - should call loader again (cache expired)
-	val, err = cache.GetSetTTL("key1", loader, 50*time.Millisecond)
+	val, err = cache.GetSetTTL("key1", loader, 1*time.Second)
 	if err != nil {
 		t.Fatalf("GetSet error: %v", err)
 	}
